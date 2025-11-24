@@ -1,100 +1,89 @@
-<script setup>
-import OCRPage from './views/OCRPage.vue';
-</script>
-
 <template>
   <div id="app-container">
+    <div class="glass-overlay"></div>
     <OCRPage />
   </div>
 </template>
 
+<script setup>
+import OCRPage from './views/OCRPage.vue';
+</script>
+
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Outfit:wght@300;400;500;600&display=swap');
 
 :root {
-  --color-background-tan: #f5f5dc;
-  --color-paper-sepia: #eaddc7;
-  --color-border-clay: #b59f7d;
-  --color-text-maroon: #800000;
-  --color-highlight-gold: #cfa86e;
-  --color-button-sepia: #9d7d5d;
-  --color-button-hover: #7b5d43;
-  --color-error: #a84c4c;
+  /* Ancient Indian Palette - Earthy & Creamy */
+  --color-deep-saffron: #E2725B; /* Terracotta/Saffron */
+  --color-royal-maroon: #4A0404; /* Dark Maroon Text */
+  --color-gold-accent: #D4AF37; /* Antique Gold */
+  --color-antique-cream: #FAF0E6; /* Linen/Cream Background */
+  --color-parchment: #F5E6D3; /* Darker Cream for panels */
+  
+  /* Glassmorphism - Warm Tint */
+  --color-glass-bg: rgba(255, 253, 240, 0.6); /* Milky/Creamy Glass */
+  --color-glass-border: rgba(212, 175, 55, 0.3); /* Gold Border */
+  
+  --color-text-primary: #4A0404; /* Maroon */
+  --color-text-secondary: #8B4513; /* Saddle Brown */
+  
+  /* Shadows */
+  --shadow-glass: 0 8px 32px 0 rgba(74, 4, 4, 0.15);
 }
 
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Poppins', sans-serif;
-  color: var(--color-text-maroon);
+  font-family: 'Outfit', sans-serif;
+  color: var(--color-text-primary);
+  background-color: var(--color-antique-cream);
+  overflow: hidden;
 }
 
 #app-container {
-  min-height: 100vh;
+  width: 100vw;
+  height: 100vh;
   position: relative;
-  background-color: var(--color-background-tan);
-  overflow: auto;
+  /* Earthy texture or gradient background */
+  background: radial-gradient(circle at center, #FAF0E6 0%, #F5E6D3 100%);
+  overflow: hidden;
 }
 
-/* Fixed background with proper texture pattern */
-#app-container::before {
-  content: '';
-  position: fixed;
+.glass-overlay {
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: var(--color-background-tan);
-  background-image: 
-    repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 10px,
-      rgba(181, 159, 125, 0.03) 10px,
-      rgba(181, 159, 125, 0.03) 20px
-    ),
-    repeating-linear-gradient(
-      -45deg,
-      transparent,
-      transparent 10px,
-      rgba(181, 159, 125, 0.03) 10px,
-      rgba(181, 159, 125, 0.03) 20px
-    );
-  opacity: 0.8;
-  z-index: -1;
+  background: url('https://www.transparenttextures.com/patterns/aged-paper.png'); /* Subtle paper texture */
+  opacity: 0.4;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Global Scrollbar Styling for internal containers */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-deep-saffron);
+  border-radius: 3px;
 }
 
 h1, h2, h3 {
-  font-weight: 400;
-  border-bottom: 2px solid var(--color-border-clay);
-  padding-bottom: 5px;
-  margin-bottom: 15px;
+  font-family: 'Cinzel Decorative', cursive;
+  color: var(--color-royal-maroon);
+  margin: 0;
 }
 
 button {
-  background-color: var(--color-button-sepia);
-  color: #fff;
-  border: 1px solid var(--color-button-sepia);
-  padding: 10px 20px;
-  border-radius: 4px;
+  font-family: 'Outfit', sans-serif;
   cursor: pointer;
-  transition: background-color 0.3s, opacity 0.3s;
-  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
-  font-family: inherit;
-  font-size: 1rem;
-}
-
-button:hover:not(:disabled) {
-  background-color: var(--color-button-hover);
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-a {
-  color: var(--color-highlight-gold);
+  transition: all 0.3s ease;
 }
 </style>
