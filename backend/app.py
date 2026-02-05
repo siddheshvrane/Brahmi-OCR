@@ -7,6 +7,7 @@ Usage:
 4. Backend will run at: http://127.0.0.1:5000
 """
 
+import sys
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tensorflow as tf
@@ -17,6 +18,11 @@ import json
 import io
 import base64
 import os
+import cv2
+
+# Import segmentation
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from segmentation import detect_characters, sort_boxes
 
 # ============================================================================
 # CUSTOM LAYERS (Required for .keras model loading)
@@ -185,115 +191,142 @@ def predict():
     try:
         # --- 1. Load and Decode Image ---
         if 'image' in request.files:
-            # Handle file upload (multipart/form-data)
             file = request.files['image']
             img = Image.open(file.stream)
-        
         elif request.json and 'image' in request.json:
-            # Handle base64 image (application/json)
             img_data = base64.b64decode(request.json['image'])
             img = Image.open(io.BytesIO(img_data))
-        
         else:
-            return jsonify({
-                'success': False,
-                'error': 'No image provided. Send as multipart file or base64 JSON.'
-            }), 400
+            return jsonify({'success': False, 'error': 'No image provided.'}), 400
 
-        # --- 2. Determine Model & Predict ---
+        # Ensure RGB (discard alpha channel if present)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # --- 2. Determine Request Params ---
         model_name = request.form.get('model') or (request.json and request.json.get('model')) or 'ResNet50'
+
+        # --- 3. Segmentation ---
+        # Convert PIL to OpenCV (RGB -> BGR)
+        open_cv_image = np.array(img)
+        open_cv_image = open_cv_image[:, :, ::-1].copy()
         
-        probabilities = None
-        class_names = []
+        boxes, _ = detect_characters(open_cv_image)
+        
+        if not boxes:
+             # Fallback: treat whole image as one char
+             boxes = [(0, 0, open_cv_image.shape[1], open_cv_image.shape[0])]
+        
+        sorted_boxes = sort_boxes(boxes)
+
+        # --- 4. Prediction Logic ---
+        results = []
+        full_text_array = []
+        
+        # Helper to get prediction for a batch of crops using specific model
+        def get_model_preds(model_key, crop_images):
+            model_obj = models[model_key]
+            cfg = configs.get(model_key, {})
+            # Resize params
+            h = cfg.get('image_height', 64)
+            w = cfg.get('image_width', 128) # Default 128 for ResNet, others might be 256. 
+            
+            # Note: app.py previously had 256 default, but ResNet config I saw had 128.
+            # We should rely on config or safe default.
+            
+            batch_arr = []
+            for c_img in crop_images:
+                # Preprocess: resize & normalize
+                # preprocess_image returns (1, H, W, 3), we need (H, W, 3) to stack
+                # or just use it and concatenate.
+                # Let's use internal logic of preprocess_image but optimized loop
+                c_resized = c_img.resize((w, h), Image.Resampling.LANCZOS)
+                c_arr = np.array(c_resized, dtype=np.float32) / 255.0
+                batch_arr.append(c_arr)
+            
+            batch_input = np.array(batch_arr)
+            return model_obj.predict(batch_input, verbose=0)
+
+        # Prepare PIL crops once
+        pil_crops = []
+        for (x, y, gw, gh) in sorted_boxes:
+            pil_crops.append(img.crop((x, y, x+gw, y+gh)))
+
+        final_probabilities = []
+        # Get Reference Class Names (from first available model)
+        ref_model = list(models.keys())[0] if models else None
+        if not ref_model:
+             return jsonify({'success': False, 'error': 'No models loaded.'}), 500
+        class_names = configs[ref_model].get('class_names', [])
 
         if model_name == 'Ensemble':
-            # Ensemble Logic: Soft Voting
+            # Ensemble: Run all models on the batch of crops
             if not models:
-                 return jsonify({'success': False, 'error': 'No models loaded for Ensemble.'}), 500
+                 return jsonify({'success': False, 'error': 'No models for Ensemble.'}), 500
             
-            # Use first model's classes as reference (assuming consistency)
-            ref_model = list(models.keys())[0]
-            class_names = configs[ref_model].get('class_names', [])
+            num_crops = len(pil_crops)
             num_classes = len(class_names)
             
-            if num_classes == 0:
-                 return jsonify({'success': False, 'error': 'Class names configuration missing.'}), 500
-
-            aggregated_probs = np.zeros(num_classes)
-            models_used_count = 0
+            # Shape: (Num_Crops, Num_Classes)
+            aggregated_probs = np.zeros((num_crops, num_classes))
+            valid_models = 0
             
-            print(f"Running Ensemble on {len(models)} models...")
-
-            for m_name, model in models.items():
+            print(f"Ensemble: Processing {num_crops} chars with {len(models)} models...")
+            
+            ensemble_errors = {}
+            for m_key in models.keys():
                 try:
-                    cfg = configs.get(m_name, {})
-                    # Resize for specific model
-                    h = cfg.get('image_height', 64)
-                    w = cfg.get('image_width', 256)
-                    
-                    # Preprocess (resize & normalize)
-                    img_arr = preprocess_image(img, w, h)
-                    
-                    # Predict
-                    preds = model.predict(img_arr, verbose=0)[0]
+                    preds = get_model_preds(m_key, pil_crops) # Shape (N, Classes)
                     probs = tf.nn.softmax(preds).numpy()
                     
-                    if len(probs) == num_classes:
+                    if probs.shape == aggregated_probs.shape:
                         aggregated_probs += probs
-                        models_used_count += 1
+                        valid_models += 1
                     else:
-                        print(f"Skipping {m_name}: Output shape {len(probs)} != {num_classes}")
-
+                        msg = f"Shape mismatch: {probs.shape} vs {aggregated_probs.shape}"
+                        print(msg)
+                        ensemble_errors[m_key] = msg
                 except Exception as e:
-                    print(f"Error in Ensemble for {m_name}: {e}")
+                    msg = str(e)
+                    print(f"Error in Ensemble for {m_key}: {msg}")
+                    ensemble_errors[m_key] = msg
 
-            if models_used_count > 0:
-                probabilities = aggregated_probs / models_used_count
+            if valid_models > 0:
+                final_probabilities = aggregated_probs / valid_models
             else:
-                 return jsonify({'success': False, 'error': 'Ensemble failed. No valid model outputs.'}), 500
+                 return jsonify({
+                     'success': False, 
+                     'error': 'Ensemble failed completely.',
+                     'details': ensemble_errors
+                 }), 500
 
         elif model_name in models:
-            # Single Model Logic
-            model = models[model_name]
-            config = configs.get(model_name, {})
-            class_names = config.get('class_names', [])
-            h = config.get('image_height', 64)
-            w = config.get('image_width', 256)
-            
-            img_arr = preprocess_image(img, w, h)
-            preds = model.predict(img_arr, verbose=0)[0]
-            probabilities = tf.nn.softmax(preds).numpy()
-            
+            # Single Model
+            preds = get_model_preds(model_name, pil_crops)
+            final_probabilities = tf.nn.softmax(preds).numpy()
         else:
-            return jsonify({
-                'success': False,
-                'error': f"Model '{model_name}' not available or not loaded."
-            }), 400
+             return jsonify({'success': False, 'error': f"Model '{model_name}' not found."}), 400
 
-        # --- 3. Process Results ---
-        top_k = 5
-        # Ensure we don't go out of bounds if classes < 5
-        top_k = min(top_k, len(probabilities))
-        
-        top_indices = np.argsort(probabilities)[-top_k:][::-1]
-        
-        results = []
-        for idx in top_indices:
-            char_name = class_names[idx] if idx < len(class_names) else f"Index_{idx}"
-            confidence = float(probabilities[idx] * 100)  # Convert to percentage
+        # --- 5. Decode Results ---
+        for i, probs in enumerate(final_probabilities):
+            top_idx = np.argmax(probs)
+            char_name = class_names[top_idx] if top_idx < len(class_names) else "Unknown"
+            conf = float(probs[top_idx] * 100)
             
+            full_text_array.append(char_name)
             results.append({
                 'character': char_name,
-                'confidence': confidence
+                'confidence': conf,
+                'box': sorted_boxes[i]
             })
-        
-        top_char = results[0]['character']
-        top_confidence = results[0]['confidence']
-        
+
+        top_char = " ".join(full_text_array)
+        top_conf = sum([r['confidence'] for r in results]) / len(results) if results else 0.0
+
         return jsonify({
             'success': True,
             'top_prediction': top_char,
-            'top_confidence': top_confidence,
+            'top_confidence': top_conf,
             'predictions': results,
             'model_used': model_name
         })
@@ -302,11 +335,7 @@ def predict():
         print(f"Prediction error: {e}")
         import traceback
         traceback.print_exc()
-        
-        return jsonify({
-            'success': False,
-            'error': f"Internal Server Error: {str(e)}"
-        }), 500
+        return jsonify({'success': False, 'error': f"Internal Error: {str(e)}"}), 500
 
 
 @app.route('/health', methods=['GET'])

@@ -41,7 +41,7 @@
         <div class="image-card">
           <h3>Restored</h3>
           <div class="img-wrapper">
-            <img :src="restoredImageSrc" alt="Restored Inscription" />
+            <img :src="boxedImageSrc || restoredImageSrc" alt="Restored Inscription" />
           </div>
         </div>
       </div>
@@ -101,6 +101,7 @@ const props = defineProps({
 const isLatin = ref(true);
 const devnagriTransliteration = ref('');
 const isTransliterating = ref(false);
+const boxedImageSrc = ref('');
 
 // Computed properties for images
 const restoredImageSrc = computed(() => {
@@ -251,13 +252,52 @@ const downloadReport = async () => {
   doc.save("brahmi_ocr_report.pdf");
 };
 
-// Watch for results changes and reset
-watch(() => props.results, (newResults) => {
+// Watch for results changes and reset/draw boxes
+watch(() => props.results, async (newResults) => {
   if (newResults) {
     isLatin.value = true;
     devnagriTransliteration.value = '';
+    
+    // Draw bounding boxes if predictions exist
+    if (newResults.raw_predictions && newResults.restored_image_b64) {
+      await drawBoundingBoxes(newResults.restored_image_b64, newResults.raw_predictions);
+    } else {
+      boxedImageSrc.value = '';
+    }
+  } else {
+    boxedImageSrc.value = '';
   }
-});
+}, { immediate: true });
+
+const drawBoundingBoxes = (base64Image, predictions) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw original image
+      ctx.drawImage(img, 0, 0);
+      
+      // Draw boxes
+      ctx.strokeStyle = '#00FF00'; // Green
+      ctx.lineWidth = 2;
+      
+      predictions.forEach(pred => {
+        if (pred.box) {
+          const [x, y, w, h] = pred.box;
+          ctx.strokeRect(x, y, w, h);
+        }
+      });
+      
+      boxedImageSrc.value = canvas.toDataURL('image/jpeg');
+      resolve();
+    };
+    img.src = `data:image/jpeg;base64,${base64Image}`;
+  });
+};
 </script>
 
 <style scoped>
