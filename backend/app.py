@@ -12,6 +12,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow.keras.models import model_from_json
 import numpy as np
 from PIL import Image
 import json
@@ -103,18 +104,21 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATHS = {
     'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'brahmi_model_resnet50.keras'),
     'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'brahmi_model_efficientnetb0.keras'),
-    'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenetv2.h5')
+    'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v1_fixed.keras')
 }
+
 CONFIG_PATHS = {
     'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'model_config_resnet50.json'),
     'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'model_config_efficientnetb0.json'),
-    'MobileNetV2': os.path.join(BASE_DIR, 'model_config_mobilnetv2.json')
+    'MobileNetV2': os.path.join(BASE_DIR, 'model_config_mobilenetv2.json')
 }
 
 # Dictionary of custom objects needed for Keras to deserialize the model
 custom_objects = {
     'TransformerBlock': TransformerBlock,
-    'TokenAndPositionEmbedding': TokenAndPositionEmbedding
+    'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
+    'Sequential': tf.keras.Sequential,
+    'Functional': tf.keras.Model
 }
 
 models = {}
@@ -131,13 +135,18 @@ for model_name, model_path in MODEL_PATHS.items():
             custom_objects=custom_objects,
             compile=False  # Faster loading for inference only
         )
-        print(f"✓ {model_name} loaded successfully!")
+        print(f"OK {model_name} loaded successfully!")
         
     except FileNotFoundError:
         print(f"ERROR: Model file not found at {model_path}.")
         print("Please ensure your .keras file is in the backend/ directory.")
     except Exception as e:
         print(f"ERROR loading {model_name}: {e}")
+        import traceback
+        traceback.print_exc()
+
+print(f"\n[DEBUG] Model loading complete. Models in dict: {list(models.keys())}")
+print(f"[DEBUG] MobileNetV2 in models: {'MobileNetV2' in models}\n")
 
 # Load configuration for class names and dimensions
 for model_name, config_path in CONFIG_PATHS.items():
@@ -152,7 +161,7 @@ for model_name, config_path in CONFIG_PATHS.items():
         if not class_names:
             print(f"WARNING: 'class_names' not found in {config_path}.")
         
-        print(f"✓ Configuration loaded for {model_name}: {len(class_names)} classes")
+        print(f"OK Configuration loaded for {model_name}: {len(class_names)} classes")
 
     except FileNotFoundError:
         print(f"ERROR: Configuration file not found at {config_path}.")
@@ -167,14 +176,48 @@ for model_name, config_path in CONFIG_PATHS.items():
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
 
+def resize_with_padding(img, target_width, target_height, canvas_scale=0.5):
+    """
+    Resizes image to target dimensions while maintaining aspect ratio using padding.
+    canvas_scale: factor to shrink the character within the box to add 'white space' (breathing room).
+    """
+    # 1. Calculate aspect ratios
+    original_w, original_h = img.size
+    
+    # Scale target dimensions by canvas_scale to create margins
+    effective_target_w = int(target_width * canvas_scale)
+    effective_target_h = int(target_height * canvas_scale)
+    
+    ratio_w = effective_target_w / original_w
+    ratio_h = effective_target_h / original_h
+    
+    # Use the smaller ratio to ensure the image fits within scaled target dimensions
+    scale = min(ratio_w, ratio_h)
+    new_w = int(original_w * scale)
+    new_h = int(original_h * scale)
+    
+    # 2. Resize maintaining aspect ratio
+    resized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
+    # 3. Create a new white background image of the full target size
+    new_img = Image.new("RGB", (target_width, target_height), (255, 255, 255))
+    
+    # 4. Paste the resized image onto the center of the white background
+    offset_x = (target_width - new_w) // 2
+    offset_y = (target_height - new_h) // 2
+    new_img.paste(resized_img, (offset_x, offset_y))
+    
+    return new_img
+
+
 def preprocess_image(img, target_width, target_height):
     """Resizes and normalizes the image for the model."""
     # Convert to RGB if needed
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
-    # Resize to model's expected dimensions
-    img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    # Use letterboxing to preserve aspect ratio
+    img = resize_with_padding(img, target_width, target_height)
     
     # Convert to array and normalize
     img_array = np.array(img, dtype=np.float32) / 255.0
@@ -212,6 +255,7 @@ def predict():
         open_cv_image = open_cv_image[:, :, ::-1].copy()
         
         boxes, _ = detect_characters(open_cv_image)
+        # boxes = [] # Disabled bounding box logic per user request
         
         if not boxes:
              # Fallback: treat whole image as one char
@@ -236,12 +280,18 @@ def predict():
             
             batch_arr = []
             for c_img in crop_images:
-                # Preprocess: resize & normalize
-                # preprocess_image returns (1, H, W, 3), we need (H, W, 3) to stack
-                # or just use it and concatenate.
-                # Let's use internal logic of preprocess_image but optimized loop
-                c_resized = c_img.resize((w, h), Image.Resampling.LANCZOS)
-                c_arr = np.array(c_resized, dtype=np.float32) / 255.0
+                # Preprocess: letterbox resize
+                c_letterboxed = resize_with_padding(c_img, w, h)
+                c_arr = np.array(c_letterboxed, dtype=np.float32)
+                
+                # Model-specific color space and normalization
+                if model_key == 'MobileNetV2':
+                    # Reference project used cv2.imread (BGR) and NO normalization
+                    c_arr = c_arr[:, :, ::-1]
+                else:
+                    # Other models (ResNet, EfficientNet) use RGB and [0, 1] normalization
+                    c_arr = c_arr / 255.0
+                    
                 batch_arr.append(c_arr)
             
             batch_input = np.array(batch_arr)
