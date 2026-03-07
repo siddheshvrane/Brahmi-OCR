@@ -1,66 +1,10 @@
 import cv2
 import numpy as np
 
-def merge_boxes(boxes, x_overlap_thresh=10, y_overlap_thresh=20):
+def detect_characters(image_input, min_area=100, padding=40):
     """
-    Intelligently merges bounding boxes that are close to each other or overlap.
-    Crucial for scripts like Brahmi where vowel marks are detached.
-    """
-    if not boxes:
-        return []
-
-    # Convert to list for manip
-    merged = []
-    
-    # Sort boxes by X to start merging candidates
-    boxes = sorted(boxes, key=lambda b: b[0])
-    
-    while boxes:
-        curr = list(boxes.pop(0)) # [x, y, w, h]
-        cx1, cy1, cx2, cy2 = curr[0], curr[1], curr[0] + curr[2], curr[1] + curr[3]
-        
-        i = 0
-        while i < len(boxes):
-            next_box = boxes[i]
-            nx1, ny1, nx2, ny2 = next_box[0], next_box[1], next_box[0] + next_box[2], next_box[1] + next_box[3]
-            
-            # Check for vertical overlap (same X range) or horizontal proximity
-            # Horizontal overlap check
-            has_x_overlap = not (cx2 < nx1 - x_overlap_thresh or nx2 < cx1 - x_overlap_thresh)
-            # Vertical proximity check (important for vowel marks above/below)
-            # We check if they are within y_overlap_thresh even if they don't overlap vertically
-            y_dist = 0
-            if cy2 < ny1: 
-                y_dist = ny1 - cy2
-            elif ny2 < cy1:
-                y_dist = cy1 - ny2
-            
-            has_y_proximity = y_dist < y_overlap_thresh
-
-            if has_x_overlap and has_y_proximity:
-                # Merge: take the envelope of both boxes
-                mx1 = min(cx1, nx1)
-                my1 = min(cy1, ny1)
-                mx2 = max(cx2, nx2)
-                my2 = max(cy2, ny2)
-                
-                # Update current merged box
-                cx1, cy1, cx2, cy2 = mx1, my1, mx2, my2
-                curr = [cx1, cy1, cx2 - cx1, cy2 - cy1]
-                
-                # Remove the merged box and reset loop to check again with updated curr
-                boxes.pop(i)
-                i = 0 
-            else:
-                i += 1
-        
-        merged.append(tuple(curr))
-        
-    return merged
-
-def detect_characters(image_input, min_area=100, padding=20):
-    """
-    Detects characters with improved "Lens-style" merging and closing.
+    Detects characters with improved "Lens-style" closing.
+    Merging logic has been removed to keep overlapping characters separate.
     """
     # Read image
     if isinstance(image_input, str):
@@ -87,8 +31,8 @@ def detect_characters(image_input, min_area=100, padding=20):
     
     # Morphological Closing: Connect broken strokes and keep components together
     # Slightly larger kernel for ancient scripts
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
     
     # Find Contours
     contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -98,15 +42,17 @@ def detect_characters(image_input, min_area=100, padding=20):
         area = cv2.contourArea(cnt)
         if area > min_area:
             x, y, w, h = cv2.boundingRect(cnt)
+            
+            # Ignore massive contours that are likely page borders or artifacts
+            if w > 0.9 * width or h > 0.9 * height:
+                continue
+                
             initial_boxes.append((x, y, w, h))
             
-    # Intelligent Merging
-    merged_boxes = merge_boxes(initial_boxes)
-    
     # Apply padding and ensure box is within image bounds
     final_boxes = []
-    for (x, y, w, h) in merged_boxes:
-        # We use a more "loose" padding strategy
+    # Using the padding value passed as an argument to give characters breathing room
+    for (x, y, w, h) in initial_boxes:
         x_pad = max(0, x - padding)
         y_pad = max(0, y - padding)
         w_pad = min(width - x_pad, w + 2 * padding)

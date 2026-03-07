@@ -1,0 +1,155 @@
+{
+  "accuracy": 0.0,
+  "results": [
+    {
+      "true": "ṣa",
+      "pred": "dho",
+      "ok": false
+    },
+    {
+      "true": "dhā",
+      "pred": "bhu",
+      "ok": false
+    },
+    {
+      "true": "bhu",
+      "pred": "bhi",
+      "ok": false
+    },
+    {
+      "true": "ku",
+      "pred": "bu",
+      "ok": false
+    },
+    {
+      "true": "ke",
+      "pred": "bu",
+      "ok": false
+    },
+    {
+      "true": "jo",
+      "pred": "bo",
+      "ok": false
+    },
+    {
+      "true": "ga",
+      "pred": "bhī",
+      "ok": false
+    },
+    {
+      "true": "dho",
+      "pred": "bhu",
+      "ok": false
+    },
+    {
+      "true": "ṭhī",
+      "pred": "dhu",
+      "ok": false
+    },
+    {
+      "true": "yu",
+      "pred": "cu",
+      "ok": false
+    },
+    {
+      "true": "da",
+      "pred": "bhu",
+      "ok": false
+    },
+    {
+      "true": "ḍe",
+      "pred": "dhe",
+      "ok": false
+    },
+    {
+      "true": "rā",
+      "pred": "chi",
+      "ok": false
+    },
+    {
+      "true": "bhī",
+      "pred": "bhi",
+      "ok": false
+    },
+    {
+      "true": "bhī",
+      "pred": "bhi",
+      "ok": false
+    },
+    {
+      "true": "dha",
+      "pred": "bhu",
+      "ok": false
+    },
+    {
+      "true": "jhā",
+      "pred": "bo",
+      "ok": false
+    },
+    {
+      "true": "jī",
+      "pred": "bo",
+      "ok": false
+    },
+    {
+      "true": "va",
+      "pred": "co",
+      "ok": false
+    },
+    {
+      "true": "ḍhi",
+      "pred": "dhe",
+      "ok": false
+    },
+    {
+      "true": "bhā",
+      "pred": "bhi",
+      "ok": false
+    },
+    {
+      "true": "ñe",
+      "pred": "cā",
+      "ok": false
+    },
+    {
+      "true": "hū",
+      "pred": "bhū",
+      "ok": false
+    },
+    {
+      "true": "ṣo",
+      "pred": "dho",
+      "ok": false
+    },
+    {
+      "true": "yo",
+      "pred": "cu",
+      "ok": false
+    },
+    {
+      "true": "rā",
+      "pred": "chi",
+      "ok": false
+    },
+    {
+      "true": "ji",
+      "pred": "dhu",
+      "ok": false
+    },
+    {
+      "true": "sā",
+      "pred": "bhī",
+      "ok": false
+    },
+    {
+      "true": "ḍa",
+      "pred": "dhe",
+      "ok": false
+    },
+    {
+      "true": "kā",
+      "pred": "bu",
+      "ok": false
+    }
+  ]
+}

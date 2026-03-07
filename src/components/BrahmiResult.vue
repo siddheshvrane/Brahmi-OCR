@@ -67,16 +67,15 @@
               <button 
                 :class="['toggle-btn', { active: !isLatin }]" 
                 @click="switchToDevnagri"
-                :disabled="isTransliterating"
               >
-                {{ isTransliterating ? '...' : 'Devanagari' }}
+                Devanagari
               </button>
             </div>
           </div>
           
           <div class="recognized-text transliteration-display" :class="{ 'devnagri-font': !isLatin }">
-            <p v-if="isLatin">{{ results.latin_transliteration }}</p>
-            <p v-else>{{ devnagriTransliteration }}</p>
+            <p v-if="isLatin">{{ results.top_prediction }}</p>
+            <p v-else>{{ results.top_prediction_devanagari }}</p>
           </div>
         </div>
       </div>
@@ -90,7 +89,6 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import transliterationService from '../services/transliterationService.js';
 import { jsPDF } from "jspdf";
 
 const props = defineProps({
@@ -99,8 +97,6 @@ const props = defineProps({
 
 // Reactive state
 const isLatin = ref(true);
-const devnagriTransliteration = ref('');
-const isTransliterating = ref(false);
 const boxedImageSrc = ref('');
 
 // Computed properties for images
@@ -123,30 +119,9 @@ const switchToLatin = () => {
   isLatin.value = true;
 };
 
-// Switch to Devanagari with transliteration
-const switchToDevnagri = async () => {
+// Switch to Devanagari
+const switchToDevnagri = () => {
   isLatin.value = false;
-  
-  // If already transliterated, don't do it again
-  if (devnagriTransliteration.value && props.results) {
-    return;
-  }
-
-  // Transliterate the Latin text to Devanagari
-  if (props.results && props.results.latin_transliteration) {
-    isTransliterating.value = true;
-    
-    try {
-      const latinText = props.results.latin_transliteration;
-      const transliterated = await transliterationService.transliterate(latinText);
-      devnagriTransliteration.value = transliterated;
-    } catch (error) {
-      console.error('Failed to transliterate:', error);
-      devnagriTransliteration.value = `${props.results.latin_transliteration}\n\n[देवनागरी रूपांतरण विफल रहा]`;
-    } finally {
-      isTransliterating.value = false;
-    }
-  }
 };
 
 // Download Report Logic
@@ -229,19 +204,19 @@ const downloadReport = async () => {
   doc.text("Latin Transliteration:", margin, yPos);
   yPos += 7;
   doc.setFont("helvetica", "normal");
-  const latinLines = doc.splitTextToSize(props.results.latin_transliteration, pageWidth - 2 * margin);
+  const latinLines = doc.splitTextToSize(props.results.top_prediction || '', pageWidth - 2 * margin);
   doc.text(latinLines, margin, yPos);
   yPos += (latinLines.length * 7) + 10;
 
   // Devanagari
-  if (devnagriTransliteration.value) {
+  if (props.results.top_prediction_devanagari) {
       doc.setFont("helvetica", "bold");
       doc.text("Devanagari Transliteration:", margin, yPos);
       yPos += 7;
       
       // Switch to Devanagari font
       doc.setFont("NotoSansDevanagari", "normal");
-      const devLines = doc.splitTextToSize(devnagriTransliteration.value, pageWidth - 2 * margin);
+      const devLines = doc.splitTextToSize(props.results.top_prediction_devanagari, pageWidth - 2 * margin);
       doc.text(devLines, margin, yPos);
       
       // Revert to standard font
@@ -256,7 +231,6 @@ const downloadReport = async () => {
 watch(() => props.results, async (newResults) => {
   if (newResults) {
     isLatin.value = true;
-    devnagriTransliteration.value = '';
     
     // Draw bounding boxes if predictions exist
     if (newResults.raw_predictions && newResults.restored_image_b64) {

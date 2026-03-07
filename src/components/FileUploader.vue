@@ -188,8 +188,8 @@ const runOcrAndDisplay = async () => {
       original_image_b64: imageBase64,
       restored_image_b64: imageBase64,
       recognized_brahmi_ascii: `Recognized Text: ${topChar}\nAvg Confidence: ${topConfidence}%\n\nCharacter Breakdown:\n${allPredictions}`,
-      latin_transliteration: topChar,
-      devnagri_transliteration: topChar, // Will be updated by transliterator component
+      top_prediction: data.top_prediction,
+      top_prediction_devanagari: data.top_prediction_devanagari,
       model_used: selectedModel.value,
       raw_predictions: data.predictions
     };

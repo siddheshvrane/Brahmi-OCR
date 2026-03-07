@@ -20,6 +20,7 @@ import io
 import base64
 import os
 import cv2
+import onnxruntime as ort
 
 # Import segmentation
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -104,13 +105,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATHS = {
     'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'brahmi_model_resnet50.keras'),
     'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'brahmi_model_efficientnetb0.keras'),
-    'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v1_fixed.keras')
+    'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v2', 'brahmi_ocr_best.onnx')
 }
 
 CONFIG_PATHS = {
     'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'model_config_resnet50.json'),
     'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'model_config_efficientnetb0.json'),
-    'MobileNetV2': os.path.join(BASE_DIR, 'model_config_mobilenetv2.json')
+    'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v2', 'brahmi_ocr_best_config.json')
 }
 
 # Dictionary of custom objects needed for Keras to deserialize the model
@@ -123,19 +124,37 @@ custom_objects = {
 
 models = {}
 configs = {}
+translit_mapping = {}
+
+# Load transliteration mapping
+try:
+    mapping_path = os.path.join(BASE_DIR, 'transliteration_mapping.json')
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            translit_mapping = json.load(f)
+        print(f"OK Transliteration mapping loaded: {len(translit_mapping)} entries")
+    else:
+        print("WARNING: transliteration_mapping.json not found. Run generate_mapping.py first.")
+except Exception as e:
+    print(f"ERROR loading transliteration mapping: {e}")
 
 print("Loading Brahmi OCR models...")
 
 for model_name, model_path in MODEL_PATHS.items():
     try:
         print(f"Loading {model_name} from {model_path}...")
-        # Load the .keras model with custom objects
-        models[model_name] = tf.keras.models.load_model(
-            model_path,
-            custom_objects=custom_objects,
-            compile=False  # Faster loading for inference only
-        )
-        print(f"OK {model_name} loaded successfully!")
+        if model_path.endswith('.onnx'):
+            # Load ONNX model
+            models[model_name] = ort.InferenceSession(model_path)
+            print(f"OK {model_name} ONNX session loaded successfully!")
+        else:
+            # Load the .keras model with custom objects
+            models[model_name] = tf.keras.models.load_model(
+                model_path,
+                custom_objects=custom_objects,
+                compile=False  # Faster loading for inference only
+            )
+            print(f"OK {model_name} loaded successfully!")
         
     except FileNotFoundError:
         print(f"ERROR: Model file not found at {model_path}.")
@@ -158,6 +177,24 @@ for model_name, config_path in CONFIG_PATHS.items():
         img_height = configs[model_name].get('image_height', 64)
         img_width = configs[model_name].get('image_width', 256)
 
+        # Load configuration for class names
+        if 'idx2label' in configs[model_name]:
+            idx2label = configs[model_name]['idx2label']
+            max_id = max(int(k) for k in idx2label.keys())
+            class_names = [idx2label.get(str(i), '<UNK>') for i in range(max_id + 1)]
+            configs[model_name]['class_names'] = class_names
+        elif 'idx2char' in configs[model_name]:
+            idx2char = configs[model_name]['idx2char']
+            max_id = max(int(k) for k in idx2char.keys())
+            class_names = [idx2char.get(str(i), '<UNK>') for i in range(max_id + 1)]
+            configs[model_name]['class_names'] = class_names
+        elif 'id2char' in configs[model_name]:
+            id2char = configs[model_name]['id2char']
+            max_id = max(int(k) for k in id2char.keys())
+            class_names = [id2char.get(str(i), '<UNK>') for i in range(max_id + 1)]
+            configs[model_name]['class_names'] = class_names
+
+        class_names = configs[model_name].get('class_names', [])
         if not class_names:
             print(f"WARNING: 'class_names' not found in {config_path}.")
         
@@ -176,38 +213,36 @@ for model_name, config_path in CONFIG_PATHS.items():
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
 
-def resize_with_padding(img, target_width, target_height, canvas_scale=0.5):
+def resize_with_padding(img, target_width, target_height, padding_percent=0.15):
     """
-    Resizes image to target dimensions while maintaining aspect ratio using padding.
-    canvas_scale: factor to shrink the character within the box to add 'white space' (breathing room).
+    Resizes image to target dimensions utilizing 'Padding to Square' method:
+    1. Calculate the largest dimension of the crop.
+    2. Add extra padding on all sides (e.g., 15%) to mimic training data constraints.
+    3. Pad the original image with a white background to a perfect square.
+    4. Resize perfectly to target_width x target_height.
     """
-    # 1. Calculate aspect ratios
     original_w, original_h = img.size
+    max_dim = max(original_w, original_h)
     
-    # Scale target dimensions by canvas_scale to create margins
-    effective_target_w = int(target_width * canvas_scale)
-    effective_target_h = int(target_height * canvas_scale)
+    # Calculate padding based on the largest dimension
+    padding = int(max_dim * padding_percent)
     
-    ratio_w = effective_target_w / original_w
-    ratio_h = effective_target_h / original_h
+    # New square dimension
+    new_dim = max_dim + 2 * padding
     
-    # Use the smaller ratio to ensure the image fits within scaled target dimensions
-    scale = min(ratio_w, ratio_h)
-    new_w = int(original_w * scale)
-    new_h = int(original_h * scale)
+    # Create a new white background image of the perfect square size
+    square_img = Image.new("RGB", (new_dim, new_dim), (255, 255, 255))
     
-    # 2. Resize maintaining aspect ratio
-    resized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    # Paste the original crop onto the center of this white square
+    offset_x = (new_dim - original_w) // 2
+    offset_y = (new_dim - original_h) // 2
+    square_img.paste(img, (offset_x, offset_y))
     
-    # 3. Create a new white background image of the full target size
-    new_img = Image.new("RGB", (target_width, target_height), (255, 255, 255))
+    # Resize the perfectly square image to the model's target dimensions
+    # This mimics PyTorch transforms.Resize((128, 128)) behavior.
+    final_img = square_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
     
-    # 4. Paste the resized image onto the center of the white background
-    offset_x = (target_width - new_w) // 2
-    offset_y = (target_height - new_h) // 2
-    new_img.paste(resized_img, (offset_x, offset_y))
-    
-    return new_img
+    return final_img
 
 
 def preprocess_image(img, target_width, target_height):
@@ -226,6 +261,10 @@ def preprocess_image(img, target_width, target_height):
     img_array = np.expand_dims(img_array, axis=0)
     
     return img_array
+
+def roman_to_devanagari(label):
+    """Returns Devanagari transliteration from pre-loaded mapping."""
+    return translit_mapping.get(label, label)
 
 
 @app.route('/predict', methods=['POST'])
@@ -248,6 +287,7 @@ def predict():
 
         # --- 2. Determine Request Params ---
         model_name = request.form.get('model') or (request.json and request.json.get('model')) or 'ResNet50'
+        transliteration = request.form.get('transliteration') or (request.json and request.json.get('transliteration')) or 'latin'
 
         # --- 3. Segmentation ---
         # Convert PIL to OpenCV (RGB -> BGR)
@@ -255,13 +295,14 @@ def predict():
         open_cv_image = open_cv_image[:, :, ::-1].copy()
         
         boxes, _ = detect_characters(open_cv_image)
-        # boxes = [] # Disabled bounding box logic per user request
         
-        if not boxes:
-             # Fallback: treat whole image as one char
-             boxes = [(0, 0, open_cv_image.shape[1], open_cv_image.shape[0])]
-        
-        sorted_boxes = sort_boxes(boxes)
+        # If 0 or 1 character is detected, use the full image as the single character box.
+        # This provides the character with the most context and avoids tight-edge crops.
+        if len(boxes) <= 1:
+             sorted_boxes = [(0, 0, open_cv_image.shape[1], open_cv_image.shape[0])]
+        else:
+             # For multiple characters, use the detected bounding boxes with padding logic
+             sorted_boxes = sort_boxes(boxes)
 
         # --- 4. Prediction Logic ---
         results = []
@@ -271,13 +312,16 @@ def predict():
         def get_model_preds(model_key, crop_images):
             model_obj = models[model_key]
             cfg = configs.get(model_key, {})
-            # Resize params
-            h = cfg.get('image_height', 64)
-            w = cfg.get('image_width', 128) # Default 128 for ResNet, others might be 256. 
+            is_onnx = MODEL_PATHS.get(model_key, "").endswith('.onnx')
             
-            # Note: app.py previously had 256 default, but ResNet config I saw had 128.
-            # We should rely on config or safe default.
+            # Resize params — read from config so it works for any model size
+            h = cfg.get('image_height', 224)
+            w = cfg.get('image_width', 224)
             
+            # ImageNet normalization constants (mean/std used in PyTorch training)
+            IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
             batch_arr = []
             for c_img in crop_images:
                 # Preprocess: letterbox resize
@@ -285,16 +329,29 @@ def predict():
                 c_arr = np.array(c_letterboxed, dtype=np.float32)
                 
                 # Model-specific color space and normalization
-                if model_key == 'MobileNetV2':
-                    # Reference project used cv2.imread (BGR) and NO normalization
-                    c_arr = c_arr[:, :, ::-1]
+                if is_onnx:
+                    # ONNX MobileNetV2 classifier (PyTorch): CHW layout + ImageNet normalization
+                    c_arr = c_arr / 255.0
+                    c_arr = (c_arr - IMAGENET_MEAN) / IMAGENET_STD   # normalize channels
+                    c_arr = np.transpose(c_arr, (2, 0, 1))           # HWC -> CHW
                 else:
-                    # Other models (ResNet, EfficientNet) use RGB and [0, 1] normalization
+                    # Keras models (ResNet, EfficientNet): RGB [0,1] normalization
                     c_arr = c_arr / 255.0
                     
                 batch_arr.append(c_arr)
             
             batch_input = np.array(batch_arr)
+            
+            if is_onnx:
+                ort_inputs = {'image': batch_input}
+                logits = model_obj.run(None, ort_inputs)[0]
+                # Apply Temperature Scaling (T=0.2) to sharpen confidence.
+                # PyTorch training with label_smoothing=0.1 and weight_decay
+                # causes the raw logits range to be small, resulting in <10% 
+                # confidence after Softmax, even when predicting perfectly.
+                logits = logits / 0.2
+                return logits
+                
             return model_obj.predict(batch_input, verbose=0)
 
         # Prepare PIL crops once
@@ -302,38 +359,37 @@ def predict():
         for (x, y, gw, gh) in sorted_boxes:
             pil_crops.append(img.crop((x, y, x+gw, y+gh)))
 
-        final_probabilities = []
-        # Get Reference Class Names (from first available model)
-        ref_model = list(models.keys())[0] if models else None
-        if not ref_model:
-             return jsonify({'success': False, 'error': 'No models loaded.'}), 500
-        class_names = configs[ref_model].get('class_names', [])
+        # Get Reference Class Names for decoding
+        # If Ensemble, we use the labels from any available model since they are now unified
+        # If Single Model, we use that model's specific labels
+        label_model = model_name if model_name in configs else list(configs.keys())[0]
+        if not label_model:
+             return jsonify({'success': False, 'error': 'No model configurations loaded.'}), 500
+        class_names = configs[label_model].get('class_names', [])
 
         if model_name == 'Ensemble':
-            # Ensemble: Run all models on the batch of crops
+            # Ensemble: Run all models and pick the best for each character
             if not models:
                  return jsonify({'success': False, 'error': 'No models for Ensemble.'}), 500
             
             num_crops = len(pil_crops)
             num_classes = len(class_names)
             
-            # Shape: (Num_Crops, Num_Classes)
-            aggregated_probs = np.zeros((num_crops, num_classes))
-            valid_models = 0
+            # Store probabilities from each model
+            all_model_probs = []
             
-            print(f"Ensemble: Processing {num_crops} chars with {len(models)} models...")
+            print(f"Ensemble (Per-Char Max-Conf): Processing {num_crops} chars with {len(models)} models...")
             
             ensemble_errors = {}
             for m_key in models.keys():
                 try:
-                    preds = get_model_preds(m_key, pil_crops) # Shape (N, Classes)
+                    preds = get_model_preds(m_key, pil_crops)
                     probs = tf.nn.softmax(preds).numpy()
                     
-                    if probs.shape == aggregated_probs.shape:
-                        aggregated_probs += probs
-                        valid_models += 1
+                    if probs.shape[1] == num_classes:
+                        all_model_probs.append(probs)
                     else:
-                        msg = f"Shape mismatch: {probs.shape} vs {aggregated_probs.shape}"
+                        msg = f"Shape mismatch for {m_key}: {probs.shape[1]} classes vs {num_classes}"
                         print(msg)
                         ensemble_errors[m_key] = msg
                 except Exception as e:
@@ -341,8 +397,19 @@ def predict():
                     print(f"Error in Ensemble for {m_key}: {msg}")
                     ensemble_errors[m_key] = msg
 
-            if valid_models > 0:
-                final_probabilities = aggregated_probs / valid_models
+            if all_model_probs:
+                # Per-character maximum confidence selection
+                final_probabilities = np.zeros((num_crops, num_classes))
+                for i in range(num_crops):
+                    best_m_idx = 0
+                    max_val = -1.0
+                    for m_idx, m_probs in enumerate(all_model_probs):
+                        # Find the model that is most confident about its top prediction for this character
+                        current_max = np.max(m_probs[i])
+                        if current_max > max_val:
+                            max_val = current_max
+                            best_m_idx = m_idx
+                    final_probabilities[i] = all_model_probs[best_m_idx][i]
             else:
                  return jsonify({
                      'success': False, 
@@ -358,24 +425,33 @@ def predict():
              return jsonify({'success': False, 'error': f"Model '{model_name}' not found."}), 400
 
         # --- 5. Decode Results ---
+        full_text_latin = []
+        full_text_devanagari = []
+
         for i, probs in enumerate(final_probabilities):
             top_idx = np.argmax(probs)
-            char_name = class_names[top_idx] if top_idx < len(class_names) else "Unknown"
+            char_name_latin = class_names[top_idx] if top_idx < len(class_names) else "Unknown"
+            char_name_devanagari = roman_to_devanagari(char_name_latin)
             conf = float(probs[top_idx] * 100)
             
-            full_text_array.append(char_name)
+            full_text_latin.append(char_name_latin)
+            full_text_devanagari.append(char_name_devanagari)
+
             results.append({
-                'character': char_name,
+                'character': char_name_latin,
+                'character_devanagari': char_name_devanagari,
                 'confidence': conf,
                 'box': sorted_boxes[i]
             })
 
-        top_char = " ".join(full_text_array)
+        top_char_latin = " ".join(full_text_latin)
+        top_char_devanagari = " ".join(full_text_devanagari)
         top_conf = sum([r['confidence'] for r in results]) / len(results) if results else 0.0
 
         return jsonify({
             'success': True,
-            'top_prediction': top_char,
+            'top_prediction': top_char_latin,
+            'top_prediction_devanagari': top_char_devanagari,
             'top_confidence': top_conf,
             'predictions': results,
             'model_used': model_name
