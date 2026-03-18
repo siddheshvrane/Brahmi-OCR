@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "<string>", line 3, in <module>
-  File "C:\Users\Siddhesh Rane\AppData\Local\Programs\Python\Python311\Lib\site-packages\keras\src\saving\saving_api.py", line 196, in load_model
-    return legacy_h5_format.load_model_from_hdf5(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Siddhesh Rane\AppData\Local\Programs\Python\Python311\Lib\site-packages\keras\src\legacy\saving\legacy_h5_format.py", line 127, in load_model_from_hdf5
-    raise ValueError(
-ValueError: No model config found in the file at brahmi_model_mobilenet_v2/best_model.h5.

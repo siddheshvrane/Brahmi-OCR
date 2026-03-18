@@ -9,7 +9,7 @@ def roman_to_devanagari_logic(label):
     # Independent vowels
     vowel_independent = {
         "a": "अ", "ā": "आ", "i": "इ", "ī": "ई", "u": "उ", "ū": "ऊ", "e": "ए", "o": "ओ", 
-        "aa": "आ", "ii": "ई", "uu": "ऊ", "baa": "बा" # Special case for 'baa' in some configs
+        "aa": "आ", "ii": "ई", "uu": "ऊ", "baa": "बा"
     }
     
     # Consonant bases
@@ -51,8 +51,8 @@ def roman_to_devanagari_logic(label):
 def generate_full_mapping():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATHS = {
-        'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'model_config_resnet50.json'),
-        'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'model_config_efficientnetb0.json'),
+        'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50_new', 'class_names.json'),
+        'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0_new', 'model_config_efficientnetb0_new.json'),
         'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v2', 'brahmi_ocr_best_config.json')
     }
 

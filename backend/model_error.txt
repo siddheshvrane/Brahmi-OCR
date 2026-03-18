@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "<string>", line 3, in <module>
-  File "C:\Users\Siddhesh Rane\AppData\Local\Programs\Python\Python311\Lib\site-packages\keras\src\saving\saving_api.py", line 203, in load_model
-    raise ValueError(
-ValueError: File not found: filepath=C:\Siddhesh Project\Brahmi-OCR\backend\brahmi_model_mobilenet_v2\best_model.keras. Please ensure the file is an accessible `.keras` zip file.

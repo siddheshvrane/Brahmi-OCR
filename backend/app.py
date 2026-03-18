@@ -1,102 +1,28 @@
 """
 Brahmi OCR Backend - Python Flask API
-Usage: 
-1. Place 'brahmi_model.keras' and 'model_config.json' in the backend/ directory
-2. Install dependencies: pip install -r requirements.txt
-3. Run: python app.py
-4. Backend will run at: http://127.0.0.1:5000
+Usage:
+  1. Install dependencies: pip install -r requirements.txt
+  2. Run: python app.py
+  3. Backend will run at: http://127.0.0.1:5000
 """
 
 import sys
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import tensorflow as tf
-from tensorflow.keras import layers
-from tensorflow.keras.models import model_from_json
 import numpy as np
 from PIL import Image
-import json
 import io
 import base64
 import os
 import cv2
 import onnxruntime as ort
 import torch
-from torchvision import transforms
 
-# Import segmentation
+# Import segmentation and GAN restorer
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from segmentation import detect_characters, sort_boxes, clean_image_noise
 from gan_restorer import GANRestorer
-
-# ============================================================================
-# CUSTOM LAYERS (Required for .keras model loading)
-# ============================================================================
-
-@tf.keras.utils.register_keras_serializable(package="BrahmiOCR")
-class TransformerBlock(layers.Layer):
-    """A standard Transformer encoder block used in your OCR model."""
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, **kwargs):
-        super().__init__(**kwargs)
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.ff_dim = ff_dim
-        self.rate = rate
-        self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
-        self.ffn = tf.keras.Sequential([
-            layers.Dense(ff_dim, activation="relu"),
-            layers.Dense(embed_dim),
-        ])
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = layers.Dropout(rate)
-        self.dropout2 = layers.Dropout(rate)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "embed_dim": self.embed_dim,
-            "num_heads": self.num_heads,
-            "ff_dim": self.ff_dim,
-            "rate": self.rate,
-        })
-        return config
-
-    def call(self, inputs, training=None):
-        # Cast to float32 to avoid type mismatch
-        inputs = tf.cast(inputs, tf.float32)
-        attn_output = self.att(inputs, inputs)
-        attn_output = self.dropout1(attn_output, training=training)
-        out1 = self.layernorm1(inputs + attn_output)
-        ffn_output = self.ffn(out1)
-        ffn_output = self.dropout2(ffn_output, training=training)
-        return self.layernorm2(out1 + ffn_output)
-
-
-@tf.keras.utils.register_keras_serializable(package="BrahmiOCR")
-class TokenAndPositionEmbedding(layers.Layer):
-    """Layer to generate and add positional embeddings to token embeddings."""
-    def __init__(self, max_len, embed_dim, **kwargs):
-        super().__init__(**kwargs)
-        self.max_len = max_len
-        self.embed_dim = embed_dim
-        self.position_embedding = layers.Embedding(input_dim=max_len, output_dim=embed_dim)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "max_len": self.max_len,
-            "embed_dim": self.embed_dim
-        })
-        return config
-
-    def call(self, inputs):
-        # Cast to float32 to avoid type mismatch
-        inputs = tf.cast(inputs, tf.float32)
-        max_len = tf.shape(inputs)[1]
-        positions = tf.range(start=0, limit=max_len, delta=1)
-        position_embeddings = self.position_embedding(positions)
-        return inputs + position_embeddings
 
 
 # ============================================================================
@@ -117,14 +43,6 @@ CONFIG_PATHS = {
     'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v2', 'brahmi_ocr_best_config.json')
 }
 
-# Dictionary of custom objects needed for Keras to deserialize the model
-custom_objects = {
-    'TransformerBlock': TransformerBlock,
-    'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
-    'Sequential': tf.keras.Sequential,
-    'Functional': tf.keras.Model
-}
-
 models = {}
 configs = {}
 translit_mapping = {}
@@ -135,13 +53,13 @@ for model_name, config_path in CONFIG_PATHS.items():
         print(f"Loading configuration for {model_name} from {config_path}...")
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
-            
+
         if isinstance(config_data, list):
             # Convert list of class names to standard config dict
             configs[model_name] = {
                 'class_names': config_data,
                 'num_classes': len(config_data),
-                'image_height': 224, # Default for PyTorch ResNet
+                'image_height': 224,
                 'image_width': 224
             }
         else:
@@ -149,7 +67,7 @@ for model_name, config_path in CONFIG_PATHS.items():
 
         cfg = configs[model_name]
         class_names = cfg.get('class_names', [])
-        
+
         # Unified naming for class mapping
         if 'idx2label' in cfg:
             idx2label = cfg['idx2label']
@@ -169,7 +87,7 @@ for model_name, config_path in CONFIG_PATHS.items():
 
         if not cfg.get('num_classes'):
             cfg['num_classes'] = len(class_names)
-            
+
         print(f"OK Configuration loaded for {model_name}: {len(class_names)} classes")
 
     except FileNotFoundError:
@@ -196,48 +114,34 @@ for model_name, model_path in MODEL_PATHS.items():
     try:
         print(f"Loading {model_name} from {model_path}...")
         if model_path.endswith('.onnx'):
-            # Load ONNX model
             models[model_name] = ort.InferenceSession(model_path)
             print(f"OK {model_name} ONNX session loaded successfully!")
         elif model_path.endswith('.pth'):
-            # Load PyTorch model
             checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-            
+
             # Get num_classes from config if not in checkpoint
             num_classes = checkpoint.get("num_classes") or configs.get(model_name, {}).get("num_classes", 214)
-            
+
             if "resnet50" in model_path.lower():
                 from brahmi_model_resnet50_new.model import ResNet50Classifier
                 pt_model = ResNet50Classifier(num_classes=num_classes)
             else:
                 from brahmi_model_efficientnetb0_new.model import EfficientNetB0Classifier
                 pt_model = EfficientNetB0Classifier(num_classes=num_classes)
-            
+
             pt_model.load_state_dict(checkpoint["model_state_dict"], strict=False)
             pt_model.to(device)
             pt_model.eval()
-            
+
             models[model_name] = pt_model
             print(f"OK {model_name} PyTorch model loaded successfully on {device}!")
-        else:
-            # Load the .keras model with custom objects
-            models[model_name] = tf.keras.models.load_model(
-                model_path,
-                custom_objects=custom_objects,
-                compile=False  # Faster loading for inference only
-            )
-            print(f"OK {model_name} loaded successfully!")
-        
+
     except FileNotFoundError:
         print(f"ERROR: Model file not found at {model_path}.")
-        print("Please ensure your .keras file is in the backend/ directory.")
     except Exception as e:
         print(f"ERROR loading {model_name}: {e}")
         import traceback
         traceback.print_exc()
-
-print(f"\n[DEBUG] Model loading complete. Models in dict: {list(models.keys())}")
-print(f"[DEBUG] MobileNetV2 in models: {'MobileNetV2' in models}\n")
 
 # Load transliteration mapping
 try:
@@ -259,54 +163,28 @@ except Exception as e:
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
 
+
 def resize_with_padding(img, target_width, target_height, padding_percent=0.15):
     """
-    Resizes image to target dimensions utilizing 'Padding to Square' method:
+    Resizes image to target dimensions using 'Padding to Square' method:
     1. Calculate the largest dimension of the crop.
-    2. Add extra padding on all sides (e.g., 15%) to mimic training data constraints.
+    2. Add extra padding on all sides (15%) to mimic training data constraints.
     3. Pad the original image with a white background to a perfect square.
-    4. Resize perfectly to target_width x target_height.
+    4. Resize to target_width x target_height.
     """
     original_w, original_h = img.size
     max_dim = max(original_w, original_h)
-    
-    # Calculate padding based on the largest dimension
+
     padding = int(max_dim * padding_percent)
-    
-    # New square dimension
     new_dim = max_dim + 2 * padding
-    
-    # Create a new white background image of the perfect square size
+
     square_img = Image.new("RGB", (new_dim, new_dim), (255, 255, 255))
-    
-    # Paste the original crop onto the center of this white square
     offset_x = (new_dim - original_w) // 2
     offset_y = (new_dim - original_h) // 2
     square_img.paste(img, (offset_x, offset_y))
-    
-    # Resize the perfectly square image to the model's target dimensions
-    # This mimics PyTorch transforms.Resize((128, 128)) behavior.
-    final_img = square_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-    
-    return final_img
 
+    return square_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
-def preprocess_image(img, target_width, target_height):
-    """Resizes and normalizes the image for the model."""
-    # Convert to RGB if needed
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    
-    # Use letterboxing to preserve aspect ratio
-    img = resize_with_padding(img, target_width, target_height)
-    
-    # Convert to array and normalize
-    img_array = np.array(img, dtype=np.float32) / 255.0
-    
-    # Add batch dimension
-    img_array = np.expand_dims(img_array, axis=0)
-    
-    return img_array
 
 def roman_to_devanagari(label):
     """Returns Devanagari transliteration from pre-loaded mapping."""
@@ -327,7 +205,6 @@ def predict():
         else:
             return jsonify({'success': False, 'error': 'No image provided.'}), 400
 
-        # Ensure RGB (discard alpha channel if present)
         if img.mode != 'RGB':
             img = img.convert('RGB')
 
@@ -337,33 +214,25 @@ def predict():
 
         # Keep original PIL Image for GAN crops
         original_pil = img.copy()
-        
-        # Determine Request Params
-        model_name = request.form.get('model') or (request.json and request.json.get('model')) or 'ResNet50'
-        transliteration = request.form.get('transliteration') or (request.json and request.json.get('transliteration')) or 'latin'
 
         # --- 3. Segmentation ---
-        # Convert PIL to OpenCV (RGB -> BGR) for detection
-        open_cv_image = np.array(img)
-        open_cv_image = open_cv_image[:, :, ::-1].copy()
-        
+        open_cv_image = np.array(img)[:, :, ::-1].copy()  # RGB -> BGR
+
         # Use cleaned image ONLY for finding bounding boxes
         detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
-        
+
         # Get custom boxes from request if they exist
         custom_boxes = (request.json and request.json.get('boxes')) or request.form.get('boxes')
-        
+
         if custom_boxes:
             if isinstance(custom_boxes, str):
-                import json
                 sorted_boxes = json.loads(custom_boxes)
             else:
                 sorted_boxes = custom_boxes
             print(f"Using {len(sorted_boxes)} custom/manual boxes.")
         else:
             boxes, _ = detect_characters(detection_image)
-            
-            # If 0 or 1 character is detected, use the full image as the single character box.
+
             if len(boxes) <= 1:
                 sorted_boxes = [[0, 0, open_cv_image.shape[1], open_cv_image.shape[0]]]
             else:
@@ -372,142 +241,104 @@ def predict():
         # --- GAN Restoration & Then Cleaning (Per Crop) ---
         restored_pil_crops = []
         if sorted_boxes:
-            # Create a composite image to show restoration results to user
             composite_img = original_pil.copy()
-            
+
             for (x, y, w, h) in sorted_boxes:
-                # 1. Crop from ORIGINAL image
+                # 1. Crop from original image
                 crop = original_pil.crop((x, y, x+w, y+h))
-                
-                if gan_restorer:
-                    # 2. GAN Restore
-                    restored_crop = gan_restorer.restore(crop)
-                else:
-                    restored_crop = crop
-                
-                # 3. Clean Noise & Binarize AFTER GAN
-                # Convert PIL to OpenCV BGR
-                restored_cv = np.array(restored_crop)
-                restored_cv = restored_cv[:, :, ::-1].copy()
-                
-                # Apply noise cleaning (this also binarizes: black on white)
+
+                # 2. GAN Restore
+                restored_crop = gan_restorer.restore(crop) if gan_restorer else crop
+
+                # 3. Clean noise & binarize AFTER GAN
+                restored_cv = np.array(restored_crop)[:, :, ::-1].copy()
                 cleaned_restored_cv = clean_image_noise(restored_cv, min_dot_area=10)
-                
-                # Convert back to PIL for OCR and composite
                 cleaned_restored_pil = Image.fromarray(cleaned_restored_cv[:, :, ::-1])
-                
-                # Resize cleaned result back to original box size to fit composite
-                display_crop = cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS)
-                composite_img.paste(display_crop, (x, y))
-                
-                # Keep 256x256 (cleaned) for OCR
+
+                # Resize cleaned result back to original box size for composite display
+                composite_img.paste(cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS), (x, y))
+
                 restored_pil_crops.append(cleaned_restored_pil)
-            
+
             restored_image_to_show = composite_img
         else:
             restored_image_to_show = original_pil
 
-        # Encode the restored image to return back to frontend
+        # Encode the restored image to return to the frontend
         buffered = io.BytesIO()
         restored_image_to_show.save(buffered, format="JPEG")
         restored_image_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        
+
         # --- 4. Prediction Logic ---
         results = []
-        full_text_array = []
-        
-        # Helper to get prediction for a batch of crops using specific model
+
+        # ImageNet normalization constants
+        IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
         def get_model_preds(model_key, crop_images):
             model_obj = models[model_key]
             cfg = configs.get(model_key, {})
             is_onnx = MODEL_PATHS.get(model_key, "").endswith('.onnx')
-            
-            # Resize params — read from config so it works for any model size
+
             h = cfg.get('image_height', 224)
             w = cfg.get('image_width', 224)
-            
-            # ImageNet normalization constants (mean/std used in PyTorch training)
-            IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-            IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
             batch_arr = []
             for c_img in crop_images:
-                # Preprocess: letterbox resize
-                c_letterboxed = resize_with_padding(c_img, w, h)
-                c_arr = np.array(c_letterboxed, dtype=np.float32)
-                
-                # Model-specific color space and normalization
+                c_arr = np.array(resize_with_padding(c_img, w, h), dtype=np.float32)
+
                 if is_onnx:
-                    # ONNX MobileNetV2 classifier (PyTorch): CHW layout + ImageNet normalization
+                    # ONNX MobileNetV2: CHW layout + ImageNet normalization
                     c_arr = c_arr / 255.0
-                    c_arr = (c_arr - IMAGENET_MEAN) / IMAGENET_STD   # normalize channels
-                    c_arr = np.transpose(c_arr, (2, 0, 1))           # HWC -> CHW
+                    c_arr = (c_arr - IMAGENET_MEAN) / IMAGENET_STD
+                    c_arr = np.transpose(c_arr, (2, 0, 1))  # HWC -> CHW
                 else:
-                    # Keras models (ResNet, EfficientNet): RGB [0,1] normalization
+                    # PyTorch models: normalize to [0, 1] first (mean/std applied below)
                     c_arr = c_arr / 255.0
-                    
+
                 batch_arr.append(c_arr)
-            
+
             batch_input = np.array(batch_arr)
-            
+
             if is_onnx:
-                ort_inputs = {'image': batch_input}
-                logits = model_obj.run(None, ort_inputs)[0]
-                # Apply Temperature Scaling (T=0.2) to sharpen confidence.
-                # PyTorch training with label_smoothing=0.1 and weight_decay
-                # causes the raw logits range to be small, resulting in <10% 
-                # confidence after Softmax, even when predicting perfectly.
-                logits = logits / 0.2
-                return logits
-            elif isinstance(model_obj, torch.nn.Module):
-                # PyTorch model
-                batch_tensor = torch.from_numpy(batch_input).to(device)
-                
-                # NCHW layout for PyTorch
-                batch_tensor = batch_tensor.permute(0, 3, 1, 2)
-                
-                # ImageNet normalization: (x - mean) / std
-                # batch_input is already [0, 1] from previous step
+                logits = model_obj.run(None, {'image': batch_input})[0]
+                # Temperature scaling (T=0.2) to sharpen confidence — ONNX model was
+                # trained with label_smoothing=0.1 causing small raw logit range.
+                return logits / 0.2
+            else:
+                # PyTorch model: apply ImageNet normalization in NCHW layout
+                batch_tensor = torch.from_numpy(batch_input).permute(0, 3, 1, 2).to(device)
                 mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(device)
-                std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(device)
+                std  = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(device)
                 batch_tensor = (batch_tensor - mean) / std
-                
                 with torch.no_grad():
                     logits = model_obj(batch_tensor)
                 return logits.cpu().numpy()
-                
-            return model_obj.predict(batch_input, verbose=0)
 
-        # Use restored PIL crops prepared above
         pil_crops = restored_pil_crops
 
-        # Get Reference Class Names for decoding
-        # If Ensemble, we use the labels from any available model since they are now unified
-        # If Single Model, we use that model's specific labels
-        label_model = model_name if model_name in configs else list(configs.keys())[0]
+        # Resolve class names
+        label_model = model_name if model_name in configs else (list(configs.keys())[0] if configs else None)
         if not label_model:
-             return jsonify({'success': False, 'error': 'No model configurations loaded.'}), 500
+            return jsonify({'success': False, 'error': 'No model configurations loaded.'}), 500
         class_names = configs[label_model].get('class_names', [])
 
         if model_name == 'Ensemble':
-            # Ensemble: Run all models and pick the best for each character
             if not models:
-                 return jsonify({'success': False, 'error': 'No models for Ensemble.'}), 500
-            
+                return jsonify({'success': False, 'error': 'No models for Ensemble.'}), 500
+
             num_crops = len(pil_crops)
             num_classes = len(class_names)
-            
-            # Store probabilities from each model
             all_model_probs = []
-            
-            print(f"Ensemble (Per-Char Max-Conf): Processing {num_crops} chars with {len(models)} models...")
-            
             ensemble_errors = {}
+
+            print(f"Ensemble (Per-Char Max-Conf): Processing {num_crops} chars with {len(models)} models...")
+
             for m_key in models.keys():
                 try:
                     preds = get_model_preds(m_key, pil_crops)
-                    probs = tf.nn.softmax(preds).numpy()
-                    
+                    probs = torch.nn.functional.softmax(torch.from_numpy(preds), dim=-1).numpy()
                     if probs.shape[1] == num_classes:
                         all_model_probs.append(probs)
                     else:
@@ -519,54 +350,39 @@ def predict():
                     print(f"Error in Ensemble for {m_key}: {msg}")
                     ensemble_errors[m_key] = msg
 
-            if all_model_probs:
-                # Per-character maximum confidence selection
-                final_probabilities = np.zeros((num_crops, num_classes))
-                for i in range(num_crops):
-                    best_m_idx = 0
-                    max_val = -1.0
-                    for m_idx, m_probs in enumerate(all_model_probs):
-                        # Find the model that is most confident about its top prediction for this character
-                        current_max = np.max(m_probs[i])
-                        if current_max > max_val:
-                            max_val = current_max
-                            best_m_idx = m_idx
-                    final_probabilities[i] = all_model_probs[best_m_idx][i]
-            else:
-                 return jsonify({
-                     'success': False, 
-                     'error': 'Ensemble failed completely.',
-                     'details': ensemble_errors
-                 }), 500
+            if not all_model_probs:
+                return jsonify({'success': False, 'error': 'Ensemble failed completely.', 'details': ensemble_errors}), 500
+
+            # Per-character maximum confidence selection
+            final_probabilities = np.zeros((num_crops, num_classes))
+            for i in range(num_crops):
+                best_m_idx = max(range(len(all_model_probs)), key=lambda m: np.max(all_model_probs[m][i]))
+                final_probabilities[i] = all_model_probs[best_m_idx][i]
 
         elif model_name in models:
-            # Single Model
             preds = get_model_preds(model_name, pil_crops)
-            final_probabilities = tf.nn.softmax(preds).numpy()
+            final_probabilities = torch.nn.functional.softmax(torch.from_numpy(preds), dim=-1).numpy()
         else:
-             return jsonify({'success': False, 'error': f"Model '{model_name}' not found."}), 400
+            return jsonify({'success': False, 'error': f"Model '{model_name}' not found."}), 400
 
         # --- 5. Decode Results ---
         full_text_latin = []
         full_text_devanagari = []
-        
-        CONF_THRESHOLD = 20.0 # Drop boxes with < 20% confidence
+        CONF_THRESHOLD = 20.0  # Drop boxes with < 20% confidence
 
         for i, probs in enumerate(final_probabilities):
             top_idx = np.argmax(probs)
             conf = float(probs[top_idx] * 100)
-            
-            # Skip predictions with very low confidence (likely noise or invalid box)
+
             if conf < CONF_THRESHOLD:
                 print(f"Dropping low-confidence box {i} ({conf:.2f}%)")
                 continue
-                
+
             char_name_latin = class_names[top_idx] if top_idx < len(class_names) else "Unknown"
             char_name_devanagari = roman_to_devanagari(char_name_latin)
-            
+
             full_text_latin.append(char_name_latin)
             full_text_devanagari.append(char_name_devanagari)
-
             results.append({
                 'character': char_name_latin,
                 'character_devanagari': char_name_devanagari,
@@ -574,14 +390,12 @@ def predict():
                 'box': sorted_boxes[i]
             })
 
-        top_char_latin = " ".join(full_text_latin)
-        top_char_devanagari = " ".join(full_text_devanagari)
-        top_conf = sum([r['confidence'] for r in results]) / len(results) if results else 0.0
+        top_conf = sum(r['confidence'] for r in results) / len(results) if results else 0.0
 
         return jsonify({
             'success': True,
-            'top_prediction': top_char_latin,
-            'top_prediction_devanagari': top_char_devanagari,
+            'top_prediction': " ".join(full_text_latin),
+            'top_prediction_devanagari': " ".join(full_text_devanagari),
             'top_confidence': top_conf,
             'predictions': results,
             'model_used': model_name,
@@ -609,69 +423,41 @@ def process():
         else:
             return jsonify({'success': False, 'error': 'No image provided.'}), 400
 
-        # Ensure RGB
         if img.mode != 'RGB':
             img = img.convert('RGB')
 
-        # Convert to OpenCV
-        open_cv_image = np.array(img)
-        open_cv_image = open_cv_image[:, :, ::-1].copy()
-        
-        # Clean image noise
-        open_cv_image = clean_image_noise(open_cv_image, min_dot_area=50)
-        
-        # Encode images for frontend
-        clean_pil = Image.fromarray(open_cv_image[:, :, ::-1])
-        buffered_clean = io.BytesIO()
-        clean_pil.save(buffered_clean, format="JPEG")
-        restored_image_b64 = base64.b64encode(buffered_clean.getvalue()).decode('utf-8')
-        
+        # Encode original image for frontend
         buffered_orig = io.BytesIO()
         img.save(buffered_orig, format="JPEG")
         original_image_b64 = base64.b64encode(buffered_orig.getvalue()).decode('utf-8')
-        
-        # Detect Characters using a temporary cleaned version
-        open_cv_image = np.array(img)
-        open_cv_image = open_cv_image[:, :, ::-1].copy()
+
+        # Detect characters on a cleaned version
+        open_cv_image = np.array(img)[:, :, ::-1].copy()
         detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
-        
         boxes, _ = detect_characters(detection_image)
         sorted_boxes = sort_boxes(boxes) if boxes else []
 
-        # Create GAN Composite from ORIGINAL image crops → then cleaning
+        # Build GAN composite: original crop → GAN restore → clean & binarize → paste back
         if sorted_boxes:
             composite_img = img.copy()
             for (x, y, w, h) in sorted_boxes:
-                # 1. Original crop
                 crop = img.crop((x, y, x+w, y+h))
-                
-                # 2. GAN
-                if gan_restorer:
-                    restored_crop = gan_restorer.restore(crop)
-                else:
-                    restored_crop = crop
-                
-                # 3. Clean & Binarize
-                restored_cv = np.array(restored_crop)
-                restored_cv = restored_cv[:, :, ::-1].copy()
+
+                restored_crop = gan_restorer.restore(crop) if gan_restorer else crop
+
+                restored_cv = np.array(restored_crop)[:, :, ::-1].copy()
                 cleaned_restored_cv = clean_image_noise(restored_cv, min_dot_area=10)
                 cleaned_restored_pil = Image.fromarray(cleaned_restored_cv[:, :, ::-1])
-                
-                # 4. Paste back
-                display_crop = cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS)
-                composite_img.paste(display_crop, (x, y))
+
+                composite_img.paste(cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS), (x, y))
             display_pil = composite_img
         else:
             display_pil = img
 
-        # Encode images for frontend
+        # Encode processed image for frontend
         buffered_clean = io.BytesIO()
         display_pil.save(buffered_clean, format="JPEG")
         restored_image_b64 = base64.b64encode(buffered_clean.getvalue()).decode('utf-8')
-        
-        buffered_orig = io.BytesIO()
-        img.save(buffered_orig, format="JPEG")
-        original_image_b64 = base64.b64encode(buffered_orig.getvalue()).decode('utf-8')
 
         return jsonify({
             'success': True,
@@ -688,10 +474,9 @@ def process():
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint."""
-    loaded_models = list(models.keys())
     return jsonify({
         'status': 'healthy',
-        'models_loaded': loaded_models,
+        'models_loaded': list(models.keys()),
         'configs_loaded': list(configs.keys())
     })
 
@@ -704,7 +489,8 @@ def index():
         'version': '1.1',
         'endpoints': {
             '/health': 'GET - Health check',
-            '/predict': 'POST - Predict character from image'
+            '/predict': 'POST - Predict character from image',
+            '/process': 'POST - Segment image without prediction'
         }
     })
 
@@ -714,8 +500,5 @@ if __name__ == '__main__':
     print("Brahmi OCR Backend Server Starting...")
     print("="*60)
     print(f"Server running at: http://127.0.0.1:5000")
-    print(f"Frontend should connect to: http://localhost:5000")
     print("="*60 + "\n")
-    
-    # Run server (debug=False for production)
     app.run(host='0.0.0.0', port=5000, debug=True)
