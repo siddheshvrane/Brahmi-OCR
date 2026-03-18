@@ -21,10 +21,13 @@ import base64
 import os
 import cv2
 import onnxruntime as ort
+import torch
+from torchvision import transforms
 
 # Import segmentation
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from segmentation import detect_characters, sort_boxes
+from segmentation import detect_characters, sort_boxes, clean_image_noise
+from gan_restorer import GANRestorer
 
 # ============================================================================
 # CUSTOM LAYERS (Required for .keras model loading)
@@ -103,14 +106,14 @@ class TokenAndPositionEmbedding(layers.Layer):
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_PATHS = {
-    'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'brahmi_model_resnet50.keras'),
-    'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'brahmi_model_efficientnetb0.keras'),
+    'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50_new', 'resnet50_brahmi.pth'),
+    'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0_new', 'model_weights.pth'),
     'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v2', 'brahmi_ocr_best.onnx')
 }
 
 CONFIG_PATHS = {
-    'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50', 'model_config_resnet50.json'),
-    'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0', 'model_config_efficientnetb0.json'),
+    'ResNet50': os.path.join(BASE_DIR, 'brahmi_model_resnet50_new', 'class_names.json'),
+    'EfficientNetB0': os.path.join(BASE_DIR, 'brahmi_model_efficientnetb0_new', 'model_config_efficientnetb0_new.json'),
     'MobileNetV2': os.path.join(BASE_DIR, 'brahmi_model_mobilenet_v2', 'brahmi_ocr_best_config.json')
 }
 
@@ -126,19 +129,68 @@ models = {}
 configs = {}
 translit_mapping = {}
 
-# Load transliteration mapping
-try:
-    mapping_path = os.path.join(BASE_DIR, 'transliteration_mapping.json')
-    if os.path.exists(mapping_path):
-        with open(mapping_path, 'r', encoding='utf-8') as f:
-            translit_mapping = json.load(f)
-        print(f"OK Transliteration mapping loaded: {len(translit_mapping)} entries")
-    else:
-        print("WARNING: transliteration_mapping.json not found. Run generate_mapping.py first.")
-except Exception as e:
-    print(f"ERROR loading transliteration mapping: {e}")
+# Load configuration for class names and dimensions
+for model_name, config_path in CONFIG_PATHS.items():
+    try:
+        print(f"Loading configuration for {model_name} from {config_path}...")
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+            
+        if isinstance(config_data, list):
+            # Convert list of class names to standard config dict
+            configs[model_name] = {
+                'class_names': config_data,
+                'num_classes': len(config_data),
+                'image_height': 224, # Default for PyTorch ResNet
+                'image_width': 224
+            }
+        else:
+            configs[model_name] = config_data
+
+        cfg = configs[model_name]
+        class_names = cfg.get('class_names', [])
+        
+        # Unified naming for class mapping
+        if 'idx2label' in cfg:
+            idx2label = cfg['idx2label']
+            max_id = max(int(k) for k in idx2label.keys())
+            class_names = [idx2label.get(str(i), '<UNK>') for i in range(max_id + 1)]
+            cfg['class_names'] = class_names
+        elif 'idx2char' in cfg:
+            idx2char = cfg['idx2char']
+            max_id = max(int(k) for k in idx2char.keys())
+            class_names = [idx2char.get(str(i), '<UNK>') for i in range(max_id + 1)]
+            cfg['class_names'] = class_names
+        elif 'id2char' in cfg:
+            id2char = cfg['id2char']
+            max_id = max(int(k) for k in id2char.keys())
+            class_names = [id2char.get(str(i), '<UNK>') for i in range(max_id + 1)]
+            cfg['class_names'] = class_names
+
+        if not cfg.get('num_classes'):
+            cfg['num_classes'] = len(class_names)
+            
+        print(f"OK Configuration loaded for {model_name}: {len(class_names)} classes")
+
+    except FileNotFoundError:
+        print(f"ERROR: Configuration file not found at {config_path}.")
+    except Exception as e:
+        print(f"ERROR loading configuration for {model_name}: {e}")
 
 print("Loading Brahmi OCR models...")
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Initialize GAN Restorer
+gan_restorer = None
+try:
+    gan_path = os.path.join(BASE_DIR, 'gan_character_restorer', 'pix2pix_final_epoch_10.pth')
+    if os.path.exists(gan_path):
+        gan_restorer = GANRestorer(gan_path, device=device)
+    else:
+        print(f"WARNING: GAN model not found at {gan_path}")
+except Exception as e:
+    print(f"ERROR loading GAN Restorer: {e}")
 
 for model_name, model_path in MODEL_PATHS.items():
     try:
@@ -147,6 +199,26 @@ for model_name, model_path in MODEL_PATHS.items():
             # Load ONNX model
             models[model_name] = ort.InferenceSession(model_path)
             print(f"OK {model_name} ONNX session loaded successfully!")
+        elif model_path.endswith('.pth'):
+            # Load PyTorch model
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+            
+            # Get num_classes from config if not in checkpoint
+            num_classes = checkpoint.get("num_classes") or configs.get(model_name, {}).get("num_classes", 214)
+            
+            if "resnet50" in model_path.lower():
+                from brahmi_model_resnet50_new.model import ResNet50Classifier
+                pt_model = ResNet50Classifier(num_classes=num_classes)
+            else:
+                from brahmi_model_efficientnetb0_new.model import EfficientNetB0Classifier
+                pt_model = EfficientNetB0Classifier(num_classes=num_classes)
+            
+            pt_model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            pt_model.to(device)
+            pt_model.eval()
+            
+            models[model_name] = pt_model
+            print(f"OK {model_name} PyTorch model loaded successfully on {device}!")
         else:
             # Load the .keras model with custom objects
             models[model_name] = tf.keras.models.load_model(
@@ -167,43 +239,17 @@ for model_name, model_path in MODEL_PATHS.items():
 print(f"\n[DEBUG] Model loading complete. Models in dict: {list(models.keys())}")
 print(f"[DEBUG] MobileNetV2 in models: {'MobileNetV2' in models}\n")
 
-# Load configuration for class names and dimensions
-for model_name, config_path in CONFIG_PATHS.items():
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            configs[model_name] = json.load(f)
-
-        class_names = configs[model_name].get('class_names', [])
-        img_height = configs[model_name].get('image_height', 64)
-        img_width = configs[model_name].get('image_width', 256)
-
-        # Load configuration for class names
-        if 'idx2label' in configs[model_name]:
-            idx2label = configs[model_name]['idx2label']
-            max_id = max(int(k) for k in idx2label.keys())
-            class_names = [idx2label.get(str(i), '<UNK>') for i in range(max_id + 1)]
-            configs[model_name]['class_names'] = class_names
-        elif 'idx2char' in configs[model_name]:
-            idx2char = configs[model_name]['idx2char']
-            max_id = max(int(k) for k in idx2char.keys())
-            class_names = [idx2char.get(str(i), '<UNK>') for i in range(max_id + 1)]
-            configs[model_name]['class_names'] = class_names
-        elif 'id2char' in configs[model_name]:
-            id2char = configs[model_name]['id2char']
-            max_id = max(int(k) for k in id2char.keys())
-            class_names = [id2char.get(str(i), '<UNK>') for i in range(max_id + 1)]
-            configs[model_name]['class_names'] = class_names
-
-        class_names = configs[model_name].get('class_names', [])
-        if not class_names:
-            print(f"WARNING: 'class_names' not found in {config_path}.")
-        
-        print(f"OK Configuration loaded for {model_name}: {len(class_names)} classes")
-
-    except FileNotFoundError:
-        print(f"ERROR: Configuration file not found at {config_path}.")
-    except Exception as e:
-        print(f"ERROR loading configuration for {model_name}: {e}")
+# Load transliteration mapping
+try:
+    mapping_path = os.path.join(BASE_DIR, 'transliteration_mapping.json')
+    if os.path.exists(mapping_path):
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            translit_mapping = json.load(f)
+        print(f"OK Transliteration mapping loaded: {len(translit_mapping)} entries")
+    else:
+        print("WARNING: transliteration_mapping.json not found. Run generate_mapping.py first.")
+except Exception as e:
+    print(f"ERROR loading transliteration mapping: {e}")
 
 
 # ============================================================================
@@ -289,21 +335,83 @@ def predict():
         model_name = request.form.get('model') or (request.json and request.json.get('model')) or 'ResNet50'
         transliteration = request.form.get('transliteration') or (request.json and request.json.get('transliteration')) or 'latin'
 
+        # Keep original PIL Image for GAN crops
+        original_pil = img.copy()
+        
+        # Determine Request Params
+        model_name = request.form.get('model') or (request.json and request.json.get('model')) or 'ResNet50'
+        transliteration = request.form.get('transliteration') or (request.json and request.json.get('transliteration')) or 'latin'
+
         # --- 3. Segmentation ---
-        # Convert PIL to OpenCV (RGB -> BGR)
+        # Convert PIL to OpenCV (RGB -> BGR) for detection
         open_cv_image = np.array(img)
         open_cv_image = open_cv_image[:, :, ::-1].copy()
         
-        boxes, _ = detect_characters(open_cv_image)
+        # Use cleaned image ONLY for finding bounding boxes
+        detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
         
-        # If 0 or 1 character is detected, use the full image as the single character box.
-        # This provides the character with the most context and avoids tight-edge crops.
-        if len(boxes) <= 1:
-             sorted_boxes = [(0, 0, open_cv_image.shape[1], open_cv_image.shape[0])]
+        # Get custom boxes from request if they exist
+        custom_boxes = (request.json and request.json.get('boxes')) or request.form.get('boxes')
+        
+        if custom_boxes:
+            if isinstance(custom_boxes, str):
+                import json
+                sorted_boxes = json.loads(custom_boxes)
+            else:
+                sorted_boxes = custom_boxes
+            print(f"Using {len(sorted_boxes)} custom/manual boxes.")
         else:
-             # For multiple characters, use the detected bounding boxes with padding logic
-             sorted_boxes = sort_boxes(boxes)
+            boxes, _ = detect_characters(detection_image)
+            
+            # If 0 or 1 character is detected, use the full image as the single character box.
+            if len(boxes) <= 1:
+                sorted_boxes = [[0, 0, open_cv_image.shape[1], open_cv_image.shape[0]]]
+            else:
+                sorted_boxes = sort_boxes(boxes)
 
+        # --- GAN Restoration & Then Cleaning (Per Crop) ---
+        restored_pil_crops = []
+        if sorted_boxes:
+            # Create a composite image to show restoration results to user
+            composite_img = original_pil.copy()
+            
+            for (x, y, w, h) in sorted_boxes:
+                # 1. Crop from ORIGINAL image
+                crop = original_pil.crop((x, y, x+w, y+h))
+                
+                if gan_restorer:
+                    # 2. GAN Restore
+                    restored_crop = gan_restorer.restore(crop)
+                else:
+                    restored_crop = crop
+                
+                # 3. Clean Noise & Binarize AFTER GAN
+                # Convert PIL to OpenCV BGR
+                restored_cv = np.array(restored_crop)
+                restored_cv = restored_cv[:, :, ::-1].copy()
+                
+                # Apply noise cleaning (this also binarizes: black on white)
+                cleaned_restored_cv = clean_image_noise(restored_cv, min_dot_area=10)
+                
+                # Convert back to PIL for OCR and composite
+                cleaned_restored_pil = Image.fromarray(cleaned_restored_cv[:, :, ::-1])
+                
+                # Resize cleaned result back to original box size to fit composite
+                display_crop = cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS)
+                composite_img.paste(display_crop, (x, y))
+                
+                # Keep 256x256 (cleaned) for OCR
+                restored_pil_crops.append(cleaned_restored_pil)
+            
+            restored_image_to_show = composite_img
+        else:
+            restored_image_to_show = original_pil
+
+        # Encode the restored image to return back to frontend
+        buffered = io.BytesIO()
+        restored_image_to_show.save(buffered, format="JPEG")
+        restored_image_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
         # --- 4. Prediction Logic ---
         results = []
         full_text_array = []
@@ -351,13 +459,27 @@ def predict():
                 # confidence after Softmax, even when predicting perfectly.
                 logits = logits / 0.2
                 return logits
+            elif isinstance(model_obj, torch.nn.Module):
+                # PyTorch model
+                batch_tensor = torch.from_numpy(batch_input).to(device)
+                
+                # NCHW layout for PyTorch
+                batch_tensor = batch_tensor.permute(0, 3, 1, 2)
+                
+                # ImageNet normalization: (x - mean) / std
+                # batch_input is already [0, 1] from previous step
+                mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1).to(device)
+                std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1).to(device)
+                batch_tensor = (batch_tensor - mean) / std
+                
+                with torch.no_grad():
+                    logits = model_obj(batch_tensor)
+                return logits.cpu().numpy()
                 
             return model_obj.predict(batch_input, verbose=0)
 
-        # Prepare PIL crops once
-        pil_crops = []
-        for (x, y, gw, gh) in sorted_boxes:
-            pil_crops.append(img.crop((x, y, x+gw, y+gh)))
+        # Use restored PIL crops prepared above
+        pil_crops = restored_pil_crops
 
         # Get Reference Class Names for decoding
         # If Ensemble, we use the labels from any available model since they are now unified
@@ -427,12 +549,20 @@ def predict():
         # --- 5. Decode Results ---
         full_text_latin = []
         full_text_devanagari = []
+        
+        CONF_THRESHOLD = 20.0 # Drop boxes with < 20% confidence
 
         for i, probs in enumerate(final_probabilities):
             top_idx = np.argmax(probs)
+            conf = float(probs[top_idx] * 100)
+            
+            # Skip predictions with very low confidence (likely noise or invalid box)
+            if conf < CONF_THRESHOLD:
+                print(f"Dropping low-confidence box {i} ({conf:.2f}%)")
+                continue
+                
             char_name_latin = class_names[top_idx] if top_idx < len(class_names) else "Unknown"
             char_name_devanagari = roman_to_devanagari(char_name_latin)
-            conf = float(probs[top_idx] * 100)
             
             full_text_latin.append(char_name_latin)
             full_text_devanagari.append(char_name_devanagari)
@@ -454,7 +584,8 @@ def predict():
             'top_prediction_devanagari': top_char_devanagari,
             'top_confidence': top_conf,
             'predictions': results,
-            'model_used': model_name
+            'model_used': model_name,
+            'restored_image_b64': restored_image_b64
         })
 
     except Exception as e:
@@ -462,6 +593,96 @@ def predict():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': f"Internal Error: {str(e)}"}), 500
+
+
+@app.route('/process', methods=['POST'])
+def process():
+    """Initial image processing and character segmentation without prediction."""
+    try:
+        # Load Image
+        if 'image' in request.files:
+            file = request.files['image']
+            img = Image.open(file.stream)
+        elif request.json and 'image' in request.json:
+            img_data = base64.b64decode(request.json['image'])
+            img = Image.open(io.BytesIO(img_data))
+        else:
+            return jsonify({'success': False, 'error': 'No image provided.'}), 400
+
+        # Ensure RGB
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # Convert to OpenCV
+        open_cv_image = np.array(img)
+        open_cv_image = open_cv_image[:, :, ::-1].copy()
+        
+        # Clean image noise
+        open_cv_image = clean_image_noise(open_cv_image, min_dot_area=50)
+        
+        # Encode images for frontend
+        clean_pil = Image.fromarray(open_cv_image[:, :, ::-1])
+        buffered_clean = io.BytesIO()
+        clean_pil.save(buffered_clean, format="JPEG")
+        restored_image_b64 = base64.b64encode(buffered_clean.getvalue()).decode('utf-8')
+        
+        buffered_orig = io.BytesIO()
+        img.save(buffered_orig, format="JPEG")
+        original_image_b64 = base64.b64encode(buffered_orig.getvalue()).decode('utf-8')
+        
+        # Detect Characters using a temporary cleaned version
+        open_cv_image = np.array(img)
+        open_cv_image = open_cv_image[:, :, ::-1].copy()
+        detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
+        
+        boxes, _ = detect_characters(detection_image)
+        sorted_boxes = sort_boxes(boxes) if boxes else []
+
+        # Create GAN Composite from ORIGINAL image crops → then cleaning
+        if sorted_boxes:
+            composite_img = img.copy()
+            for (x, y, w, h) in sorted_boxes:
+                # 1. Original crop
+                crop = img.crop((x, y, x+w, y+h))
+                
+                # 2. GAN
+                if gan_restorer:
+                    restored_crop = gan_restorer.restore(crop)
+                else:
+                    restored_crop = crop
+                
+                # 3. Clean & Binarize
+                restored_cv = np.array(restored_crop)
+                restored_cv = restored_cv[:, :, ::-1].copy()
+                cleaned_restored_cv = clean_image_noise(restored_cv, min_dot_area=10)
+                cleaned_restored_pil = Image.fromarray(cleaned_restored_cv[:, :, ::-1])
+                
+                # 4. Paste back
+                display_crop = cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS)
+                composite_img.paste(display_crop, (x, y))
+            display_pil = composite_img
+        else:
+            display_pil = img
+
+        # Encode images for frontend
+        buffered_clean = io.BytesIO()
+        display_pil.save(buffered_clean, format="JPEG")
+        restored_image_b64 = base64.b64encode(buffered_clean.getvalue()).decode('utf-8')
+        
+        buffered_orig = io.BytesIO()
+        img.save(buffered_orig, format="JPEG")
+        original_image_b64 = base64.b64encode(buffered_orig.getvalue()).decode('utf-8')
+
+        return jsonify({
+            'success': True,
+            'restored_image_b64': restored_image_b64,
+            'original_image_b64': original_image_b64,
+            'boxes': sorted_boxes
+        })
+
+    except Exception as e:
+        print(f"Processing error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/health', methods=['GET'])

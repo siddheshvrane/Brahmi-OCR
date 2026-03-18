@@ -1,19 +1,24 @@
 <template>
   <div class="ocr-page">
-    <div class="header-section">
-      <img :src="logoImg" alt="Brahmi OCR Logo" class="app-logo" />
-      <p class="subtitle">Rediscovering Ancient Wisdom through AI</p>
-    </div>
+    <header class="app-header">
+      <div class="brand">
+        <img :src="logoImg" alt="Brahmi OCR Logo" class="brand-logo" />
+        <div class="brand-text">
+          <h1>Brahmi OCR</h1>
+          <p>Rediscovering Ancient Wisdom through AI</p>
+        </div>
+      </div>
+    </header>
     
-    <div class="app-layout">
-      <div class="layout-column left-panel">
-        <FileUploader @ocr-result="handleOcrResult" />
-      </div>
+    <main class="app-main">
+      <aside class="sidebar">
+        <FileUploader @image-processed="handleImageProcessed" />
+      </aside>
 
-      <div class="layout-column right-panel">
-        <BrahmiResult :results="ocrResults" />
-      </div>
-    </div>
+      <section class="content-area">
+        <BrahmiResult :initialData="processedData" />
+      </section>
+    </main>
   </div>
 </template>
 
@@ -23,11 +28,10 @@ import FileUploader from '../components/FileUploader.vue';
 import BrahmiResult from '../components/BrahmiResult.vue';
 import logoImg from '../assets/logo.png';
 
-// State for the OCR results
-const ocrResults = ref(null);
+const processedData = ref(null);
 
-const handleOcrResult = (data) => {
-  ocrResults.value = data;
+const handleImageProcessed = (data) => {
+  processedData.value = data;
 };
 </script>
 
@@ -35,73 +39,91 @@ const handleOcrResult = (data) => {
 .ocr-page {
   width: 100%;
   height: 100vh;
-  min-height: 0; /* Crucial for nested scrolling */
-  max-width: 1400px;
+  max-width: 1440px;
   margin: 0 auto;
-  width: 100%;
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  box-sizing: border-box;
+  padding: 32px 48px;
+  gap: 32px;
 }
 
-.header-section {
+/* Header */
+.app-header {
+  flex-shrink: 0;
+}
+
+.brand {
   display: flex;
   align-items: center;
   gap: 20px;
-  margin-bottom: 20px;
-  flex-shrink: 0;
-  padding-left: 10px;
 }
 
-.app-logo {
-  max-height: 120px;
+.brand-logo {
+  height: 56px;
   width: auto;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-  margin-bottom: 0;
-}
-
-.subtitle {
-  color: var(--color-royal-maroon);
-  font-family: 'Outfit', sans-serif;
-  font-weight: 500;
-  letter-spacing: 2px;
-  margin: 0;
   opacity: 0.9;
-  font-size: 1.2rem;
 }
 
-.app-layout {
-  display: flex;
-  gap: 30px;
-  flex: 1;
-  min-height: 0; /* Crucial for nested scrolling */
-  width: 100%;
+.brand-text h1 {
+  font-family: inherit;
+  font-size: 1.75rem;
+  color: var(--color-kaavi-red);
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
-.layout-column {
+.brand-text p {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  margin: 4px 0 0 0;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Layout */
+.app-main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
   flex: 1;
-  min-width: 0;
-  height: 100%;
+  min-height: 0;
+}
+
+.sidebar {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.content-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 /* Responsive Design */
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .ocr-page {
     height: auto;
-    min-height: 100vh;
-    overflow-y: auto;
+    padding: 24px;
+    gap: 24px;
   }
 
-  .app-layout {
-    flex-direction: column;
+  .app-main {
+    grid-template-columns: 1fr;
     height: auto;
   }
 
-  .layout-column {
-    height: 600px; /* Fixed height for mobile scrollable areas */
+  .sidebar {
+    width: 100%;
+    height: auto;
+  }
+
+  .content-area {
+    min-height: 600px;
   }
 }
 </style>

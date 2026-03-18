@@ -28,3 +28,9 @@ coverage
 *.sw?
 
 *.tsbuildinfo
+
+# Machine Learning Model Weights
+*.pth
+*.onnx
+*.keras
+*.h5

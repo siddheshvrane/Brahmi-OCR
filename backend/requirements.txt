@@ -4,5 +4,7 @@ tensorflow>=2.17.0
 pillow>=10.0.0
 numpy>=1.23.0
 onnxruntime>=1.16.0
+torch>=2.0.0
+torchvision>=0.15.0
 # For PDF generation (frontend dependency, but good to note)
 # jspdf is handled via npm
