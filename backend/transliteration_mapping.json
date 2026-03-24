@@ -1,222 +1,858 @@
 {
-  "a": "अ",
-  "ba": "ब",
-  "baa": "बा",
-  "be": "बे",
-  "bha": "भ",
-  "bhaa": "भा",
-  "bhe": "भे",
-  "bhi": "भि",
-  "bhii": "भि",
-  "bho": "भो",
-  "bhu": "भु",
-  "bhuu": "भु",
-  "bhā": "भा",
-  "bhī": "भी",
-  "bhū": "भू",
-  "bi": "बि",
-  "bo": "बो",
-  "bu": "बु",
-  "bā": "बा",
-  "ca": "च",
-  "caa": "चा",
-  "ce": "चे",
-  "cha": "छ",
-  "che": "छे",
-  "chi": "छि",
-  "chu": "छु",
-  "chā": "छा",
-  "ci": "चि",
-  "co": "चो",
-  "cu": "चु",
-  "cuu": "चु",
-  "cā": "चा",
-  "cū": "चू",
-  "da": "द",
-  "de": "दे",
-  "dha": "ध",
-  "dhe": "धे",
-  "dhi": "धि",
-  "dho": "धो",
-  "dhu": "धु",
-  "dhā": "धा",
-  "dhī": "धी",
-  "dhū": "धू",
-  "di": "दि",
-  "do": "दो",
-  "du": "दु",
-  "dā": "दा",
-  "dī": "दी",
-  "e": "ए",
-  "ga": "ग",
-  "ge": "गे",
-  "gha": "घ",
-  "ghe": "घे",
-  "gho": "घो",
-  "ghu": "घु",
-  "ghā": "घा",
-  "gi": "गि",
-  "go": "गो",
-  "gu": "गु",
-  "gā": "गा",
-  "ha": "ह",
-  "he": "हे",
-  "hi": "हि",
-  "ho": "हो",
-  "hu": "हु",
-  "hā": "हा",
-  "hī": "ही",
-  "hū": "हू",
-  "i": "इ",
-  "ja": "ज",
-  "je": "जे",
-  "jha": "झ",
-  "jhi": "झि",
-  "jhā": "झा",
-  "ji": "जि",
-  "jo": "जो",
-  "ju": "जु",
-  "jā": "जा",
-  "jī": "जी",
-  "jū": "जू",
-  "ka": "क",
-  "ke": "के",
-  "kha": "ख",
-  "khe": "खे",
-  "khi": "खि",
-  "kho": "खो",
-  "khu": "खु",
-  "khā": "खा",
-  "khī": "खी",
-  "ki": "कि",
-  "ko": "को",
-  "ku": "कु",
-  "kā": "का",
-  "kī": "की",
-  "kū": "कू",
-  "la": "ल",
-  "le": "ले",
-  "li": "लि",
-  "lo": "लो",
-  "lu": "लु",
-  "lā": "ला",
-  "lī": "ली",
-  "lū": "लू",
-  "ma": "म",
-  "me": "मे",
-  "mi": "मि",
-  "mo": "मो",
-  "mu": "मु",
-  "mā": "मा",
-  "mī": "मी",
-  "mū": "मू",
-  "na": "न",
-  "ne": "ने",
-  "ni": "नि",
-  "no": "नो",
-  "nu": "नु",
-  "nā": "ना",
-  "nī": "नी",
-  "nū": "नू",
-  "o": "ओ",
-  "pa": "प",
-  "pe": "पे",
-  "pha": "फ",
-  "phe": "फे",
-  "phā": "फा",
-  "pi": "पि",
-  "po": "पो",
-  "pu": "पु",
-  "pā": "पा",
-  "pī": "पी",
-  "ra": "र",
-  "re": "रे",
-  "ri": "रि",
-  "ro": "रो",
-  "ru": "रु",
-  "rā": "रा",
-  "rī": "री",
-  "rū": "रू",
-  "sa": "स",
-  "se": "से",
-  "si": "सि",
-  "so": "सो",
-  "su": "सु",
-  "sā": "सा",
-  "sī": "सी",
-  "sū": "सू",
-  "ta": "त",
-  "te": "ते",
-  "tha": "थ",
-  "the": "थे",
-  "thi": "थि",
-  "thu": "थु",
-  "thā": "था",
-  "thī": "थी",
-  "ti": "ति",
-  "to": "तो",
-  "tu": "तु",
-  "tā": "ता",
-  "tī": "ती",
-  "tū": "तू",
-  "u": "उ",
-  "va": "व",
-  "ve": "वे",
-  "vi": "वि",
-  "vo": "वो",
-  "vu": "वु",
-  "vā": "वा",
-  "vī": "वी",
-  "vū": "वू",
-  "ya": "य",
-  "ye": "ये",
-  "yi": "यि",
-  "yo": "यो",
-  "yu": "यु",
-  "yā": "या",
-  "yī": "यी",
-  "yū": "यू",
-  "ña": "ञ",
-  "ñe": "ञे",
-  "ño": "ञो",
-  "ñā": "ञा",
-  "ā": "आ",
-  "śa": "श",
-  "śi": "शि",
-  "śu": "शु",
-  "śā": "शा",
-  "ḍa": "ड",
-  "ḍe": "डे",
-  "ḍha": "ढ",
-  "ḍhe": "ढे",
-  "ḍhi": "ढि",
-  "ḍhā": "ढा",
-  "ḍhī": "ढी",
-  "ḍi": "डि",
-  "ḍu": "डु",
-  "ḍā": "डा",
-  "ḍī": "डी",
-  "ṇa": "ण",
-  "ṇe": "णे",
-  "ṇi": "णि",
-  "ṇā": "णा",
-  "ṇī": "णी",
-  "ṣa": "ष",
-  "ṣe": "षे",
-  "ṣi": "षि",
-  "ṣo": "षो",
-  "ṣu": "षु",
-  "ṣā": "षा",
-  "ṭa": "ट",
-  "ṭe": "टे",
-  "ṭha": "ठ",
-  "ṭhe": "ठे",
-  "ṭhi": "ठि",
-  "ṭhā": "ठा",
-  "ṭhī": "ठी",
-  "ṭhū": "ठू",
-  "ṭi": "टि",
-  "ṭu": "टु",
-  "ṭā": "टा",
-  "ṭī": "टी"
+  "a": {
+    "devanagari": "अ",
+    "brahmi": "𑀅"
+  },
+  "ba": {
+    "devanagari": "ब",
+    "brahmi": "𑀩"
+  },
+  "be": {
+    "devanagari": "बे",
+    "brahmi": "𑀩𑁂"
+  },
+  "bha": {
+    "devanagari": "भ",
+    "brahmi": "𑀪"
+  },
+  "bhe": {
+    "devanagari": "भे",
+    "brahmi": "𑀪𑁂"
+  },
+  "bhi": {
+    "devanagari": "भि",
+    "brahmi": "𑀪𑀺"
+  },
+  "bho": {
+    "devanagari": "भो",
+    "brahmi": "𑀪𑁄"
+  },
+  "bhu": {
+    "devanagari": "भु",
+    "brahmi": "𑀪𑀼"
+  },
+  "bhā": {
+    "devanagari": "भा",
+    "brahmi": "𑀪𑀸"
+  },
+  "bhī": {
+    "devanagari": "भी",
+    "brahmi": "𑀪𑀻"
+  },
+  "bhū": {
+    "devanagari": "भू",
+    "brahmi": "𑀪𑀽"
+  },
+  "bi": {
+    "devanagari": "बि",
+    "brahmi": "𑀩𑀺"
+  },
+  "bo": {
+    "devanagari": "बो",
+    "brahmi": "𑀩𑁄"
+  },
+  "bu": {
+    "devanagari": "बु",
+    "brahmi": "𑀩𑀼"
+  },
+  "bā": {
+    "devanagari": "बा",
+    "brahmi": "𑀩𑀸"
+  },
+  "ca": {
+    "devanagari": "च",
+    "brahmi": "𑀘"
+  },
+  "ce": {
+    "devanagari": "चे",
+    "brahmi": "𑀘𑁂"
+  },
+  "cha": {
+    "devanagari": "छ",
+    "brahmi": "𑀙"
+  },
+  "che": {
+    "devanagari": "छे",
+    "brahmi": "𑀙𑁂"
+  },
+  "chi": {
+    "devanagari": "छि",
+    "brahmi": "𑀙𑀺"
+  },
+  "chu": {
+    "devanagari": "छु",
+    "brahmi": "𑀙𑀼"
+  },
+  "chā": {
+    "devanagari": "छा",
+    "brahmi": "𑀙𑀸"
+  },
+  "ci": {
+    "devanagari": "चि",
+    "brahmi": "𑀘𑀺"
+  },
+  "co": {
+    "devanagari": "चो",
+    "brahmi": "𑀘𑁄"
+  },
+  "cu": {
+    "devanagari": "चु",
+    "brahmi": "𑀘𑀼"
+  },
+  "cā": {
+    "devanagari": "चा",
+    "brahmi": "𑀘𑀸"
+  },
+  "cū": {
+    "devanagari": "चू",
+    "brahmi": "𑀘𑀽"
+  },
+  "da": {
+    "devanagari": "द",
+    "brahmi": "𑀤"
+  },
+  "de": {
+    "devanagari": "दे",
+    "brahmi": "𑀤𑁂"
+  },
+  "dha": {
+    "devanagari": "ध",
+    "brahmi": "𑀥"
+  },
+  "dhe": {
+    "devanagari": "धे",
+    "brahmi": "𑀥𑁂"
+  },
+  "dhi": {
+    "devanagari": "धि",
+    "brahmi": "𑀥𑀺"
+  },
+  "dho": {
+    "devanagari": "धो",
+    "brahmi": "𑀥𑁄"
+  },
+  "dhu": {
+    "devanagari": "धु",
+    "brahmi": "𑀥𑀼"
+  },
+  "dhā": {
+    "devanagari": "धा",
+    "brahmi": "𑀥𑀸"
+  },
+  "dhī": {
+    "devanagari": "धी",
+    "brahmi": "𑀥𑀻"
+  },
+  "dhū": {
+    "devanagari": "धू",
+    "brahmi": "𑀥𑀽"
+  },
+  "di": {
+    "devanagari": "दि",
+    "brahmi": "𑀤𑀺"
+  },
+  "do": {
+    "devanagari": "दो",
+    "brahmi": "𑀤𑁄"
+  },
+  "du": {
+    "devanagari": "दु",
+    "brahmi": "𑀤𑀼"
+  },
+  "dā": {
+    "devanagari": "दा",
+    "brahmi": "𑀤𑀸"
+  },
+  "dī": {
+    "devanagari": "दी",
+    "brahmi": "𑀤𑀻"
+  },
+  "e": {
+    "devanagari": "ए",
+    "brahmi": "𑀏"
+  },
+  "ga": {
+    "devanagari": "ग",
+    "brahmi": "𑀕"
+  },
+  "ge": {
+    "devanagari": "गे",
+    "brahmi": "𑀕𑁂"
+  },
+  "gha": {
+    "devanagari": "घ",
+    "brahmi": "𑀖"
+  },
+  "ghe": {
+    "devanagari": "घे",
+    "brahmi": "𑀖𑁂"
+  },
+  "gho": {
+    "devanagari": "घो",
+    "brahmi": "𑀖𑁄"
+  },
+  "ghu": {
+    "devanagari": "घु",
+    "brahmi": "𑀖𑀼"
+  },
+  "ghā": {
+    "devanagari": "घा",
+    "brahmi": "𑀖𑀸"
+  },
+  "gi": {
+    "devanagari": "गि",
+    "brahmi": "𑀕𑀺"
+  },
+  "go": {
+    "devanagari": "गो",
+    "brahmi": "𑀕𑁄"
+  },
+  "gu": {
+    "devanagari": "गु",
+    "brahmi": "𑀕𑀼"
+  },
+  "gā": {
+    "devanagari": "गा",
+    "brahmi": "𑀕𑀸"
+  },
+  "ha": {
+    "devanagari": "ह",
+    "brahmi": "𑀳"
+  },
+  "he": {
+    "devanagari": "हे",
+    "brahmi": "𑀳𑁂"
+  },
+  "hi": {
+    "devanagari": "हि",
+    "brahmi": "𑀳𑀺"
+  },
+  "ho": {
+    "devanagari": "हो",
+    "brahmi": "𑀳𑁄"
+  },
+  "hu": {
+    "devanagari": "हु",
+    "brahmi": "𑀳𑀼"
+  },
+  "hā": {
+    "devanagari": "हा",
+    "brahmi": "𑀳𑀸"
+  },
+  "hī": {
+    "devanagari": "ही",
+    "brahmi": "𑀳𑀻"
+  },
+  "hū": {
+    "devanagari": "हू",
+    "brahmi": "𑀳𑀽"
+  },
+  "i": {
+    "devanagari": "इ",
+    "brahmi": "𑀇"
+  },
+  "ja": {
+    "devanagari": "ज",
+    "brahmi": "𑀚"
+  },
+  "je": {
+    "devanagari": "जे",
+    "brahmi": "𑀚𑁂"
+  },
+  "jha": {
+    "devanagari": "झ",
+    "brahmi": "𑀛"
+  },
+  "jhi": {
+    "devanagari": "झि",
+    "brahmi": "𑀛𑀺"
+  },
+  "jhā": {
+    "devanagari": "झा",
+    "brahmi": "𑀛𑀸"
+  },
+  "ji": {
+    "devanagari": "जि",
+    "brahmi": "𑀚𑀺"
+  },
+  "jo": {
+    "devanagari": "जो",
+    "brahmi": "𑀚𑁄"
+  },
+  "ju": {
+    "devanagari": "जु",
+    "brahmi": "𑀚𑀼"
+  },
+  "jā": {
+    "devanagari": "जा",
+    "brahmi": "𑀚𑀸"
+  },
+  "jī": {
+    "devanagari": "जी",
+    "brahmi": "𑀚𑀻"
+  },
+  "jū": {
+    "devanagari": "जू",
+    "brahmi": "𑀚𑀽"
+  },
+  "ka": {
+    "devanagari": "क",
+    "brahmi": "𑀓"
+  },
+  "ke": {
+    "devanagari": "के",
+    "brahmi": "𑀓𑁂"
+  },
+  "kha": {
+    "devanagari": "ख",
+    "brahmi": "𑀔"
+  },
+  "khe": {
+    "devanagari": "खे",
+    "brahmi": "𑀔𑁂"
+  },
+  "khi": {
+    "devanagari": "खि",
+    "brahmi": "𑀔𑀺"
+  },
+  "kho": {
+    "devanagari": "खो",
+    "brahmi": "𑀔𑁄"
+  },
+  "khu": {
+    "devanagari": "खु",
+    "brahmi": "𑀔𑀼"
+  },
+  "khā": {
+    "devanagari": "खा",
+    "brahmi": "𑀔𑀸"
+  },
+  "khī": {
+    "devanagari": "खी",
+    "brahmi": "𑀔𑀻"
+  },
+  "ki": {
+    "devanagari": "कि",
+    "brahmi": "𑀓𑀺"
+  },
+  "ko": {
+    "devanagari": "को",
+    "brahmi": "𑀓𑁄"
+  },
+  "ku": {
+    "devanagari": "कु",
+    "brahmi": "𑀓𑀼"
+  },
+  "kā": {
+    "devanagari": "का",
+    "brahmi": "𑀓𑀸"
+  },
+  "kī": {
+    "devanagari": "की",
+    "brahmi": "𑀓𑀻"
+  },
+  "kū": {
+    "devanagari": "कू",
+    "brahmi": "𑀓𑀽"
+  },
+  "la": {
+    "devanagari": "ल",
+    "brahmi": "𑀮"
+  },
+  "le": {
+    "devanagari": "ले",
+    "brahmi": "𑀮𑁂"
+  },
+  "li": {
+    "devanagari": "लि",
+    "brahmi": "𑀮𑀺"
+  },
+  "lo": {
+    "devanagari": "लो",
+    "brahmi": "𑀮𑁄"
+  },
+  "lu": {
+    "devanagari": "लु",
+    "brahmi": "𑀮𑀼"
+  },
+  "lā": {
+    "devanagari": "ला",
+    "brahmi": "𑀮𑀸"
+  },
+  "lī": {
+    "devanagari": "ली",
+    "brahmi": "𑀮𑀻"
+  },
+  "lū": {
+    "devanagari": "लू",
+    "brahmi": "𑀮𑀽"
+  },
+  "ma": {
+    "devanagari": "म",
+    "brahmi": "𑀫"
+  },
+  "me": {
+    "devanagari": "मे",
+    "brahmi": "𑀫𑁂"
+  },
+  "mi": {
+    "devanagari": "मि",
+    "brahmi": "𑀫𑀺"
+  },
+  "mo": {
+    "devanagari": "मो",
+    "brahmi": "𑀫𑁄"
+  },
+  "mu": {
+    "devanagari": "मु",
+    "brahmi": "𑀫𑀼"
+  },
+  "mā": {
+    "devanagari": "मा",
+    "brahmi": "𑀫𑀸"
+  },
+  "mī": {
+    "devanagari": "मी",
+    "brahmi": "𑀫𑀻"
+  },
+  "mū": {
+    "devanagari": "मू",
+    "brahmi": "𑀫𑀽"
+  },
+  "na": {
+    "devanagari": "न",
+    "brahmi": "𑀦"
+  },
+  "ne": {
+    "devanagari": "ने",
+    "brahmi": "𑀦𑁂"
+  },
+  "ni": {
+    "devanagari": "नि",
+    "brahmi": "𑀦𑀺"
+  },
+  "no": {
+    "devanagari": "नो",
+    "brahmi": "𑀦𑁄"
+  },
+  "nu": {
+    "devanagari": "नु",
+    "brahmi": "𑀦𑀼"
+  },
+  "nā": {
+    "devanagari": "ना",
+    "brahmi": "𑀦𑀸"
+  },
+  "nī": {
+    "devanagari": "नी",
+    "brahmi": "𑀦𑀻"
+  },
+  "nū": {
+    "devanagari": "नू",
+    "brahmi": "𑀦𑀽"
+  },
+  "o": {
+    "devanagari": "ओ",
+    "brahmi": "𑀑"
+  },
+  "pa": {
+    "devanagari": "प",
+    "brahmi": "𑀧"
+  },
+  "pe": {
+    "devanagari": "पे",
+    "brahmi": "𑀧𑁂"
+  },
+  "pha": {
+    "devanagari": "फ",
+    "brahmi": "𑀨"
+  },
+  "phe": {
+    "devanagari": "फे",
+    "brahmi": "𑀨𑁂"
+  },
+  "phā": {
+    "devanagari": "फा",
+    "brahmi": "𑀨𑀸"
+  },
+  "pi": {
+    "devanagari": "पि",
+    "brahmi": "𑀧𑀺"
+  },
+  "po": {
+    "devanagari": "पो",
+    "brahmi": "𑀧𑁄"
+  },
+  "pu": {
+    "devanagari": "पु",
+    "brahmi": "𑀧𑀼"
+  },
+  "pā": {
+    "devanagari": "पा",
+    "brahmi": "𑀧𑀸"
+  },
+  "pī": {
+    "devanagari": "पी",
+    "brahmi": "𑀧𑀻"
+  },
+  "ra": {
+    "devanagari": "र",
+    "brahmi": "𑀭"
+  },
+  "re": {
+    "devanagari": "रे",
+    "brahmi": "𑀭𑁂"
+  },
+  "ri": {
+    "devanagari": "रि",
+    "brahmi": "𑀭𑀺"
+  },
+  "ro": {
+    "devanagari": "रो",
+    "brahmi": "𑀭𑁄"
+  },
+  "ru": {
+    "devanagari": "रु",
+    "brahmi": "𑀭𑀼"
+  },
+  "rā": {
+    "devanagari": "रा",
+    "brahmi": "𑀭𑀸"
+  },
+  "rī": {
+    "devanagari": "री",
+    "brahmi": "𑀭𑀻"
+  },
+  "rū": {
+    "devanagari": "रू",
+    "brahmi": "𑀭𑀽"
+  },
+  "sa": {
+    "devanagari": "स",
+    "brahmi": "𑀲"
+  },
+  "se": {
+    "devanagari": "से",
+    "brahmi": "𑀲𑁂"
+  },
+  "si": {
+    "devanagari": "सि",
+    "brahmi": "𑀲𑀺"
+  },
+  "so": {
+    "devanagari": "सो",
+    "brahmi": "𑀲𑁄"
+  },
+  "su": {
+    "devanagari": "सु",
+    "brahmi": "𑀲𑀼"
+  },
+  "sā": {
+    "devanagari": "सा",
+    "brahmi": "𑀲𑀸"
+  },
+  "sī": {
+    "devanagari": "सी",
+    "brahmi": "𑀲𑀻"
+  },
+  "sū": {
+    "devanagari": "सू",
+    "brahmi": "𑀲𑀽"
+  },
+  "ta": {
+    "devanagari": "त",
+    "brahmi": "𑀢"
+  },
+  "te": {
+    "devanagari": "ते",
+    "brahmi": "𑀢𑁂"
+  },
+  "tha": {
+    "devanagari": "थ",
+    "brahmi": "𑀣"
+  },
+  "the": {
+    "devanagari": "थे",
+    "brahmi": "𑀣𑁂"
+  },
+  "thi": {
+    "devanagari": "थि",
+    "brahmi": "𑀣𑀺"
+  },
+  "thu": {
+    "devanagari": "थु",
+    "brahmi": "𑀣𑀼"
+  },
+  "thā": {
+    "devanagari": "था",
+    "brahmi": "𑀣𑀸"
+  },
+  "thī": {
+    "devanagari": "थी",
+    "brahmi": "𑀣𑀻"
+  },
+  "ti": {
+    "devanagari": "ति",
+    "brahmi": "𑀢𑀺"
+  },
+  "to": {
+    "devanagari": "तो",
+    "brahmi": "𑀢𑁄"
+  },
+  "tu": {
+    "devanagari": "तु",
+    "brahmi": "𑀢𑀼"
+  },
+  "tā": {
+    "devanagari": "ता",
+    "brahmi": "𑀢𑀸"
+  },
+  "tī": {
+    "devanagari": "ती",
+    "brahmi": "𑀢𑀻"
+  },
+  "tū": {
+    "devanagari": "तू",
+    "brahmi": "𑀢𑀽"
+  },
+  "u": {
+    "devanagari": "उ",
+    "brahmi": "𑀉"
+  },
+  "va": {
+    "devanagari": "व",
+    "brahmi": "𑀯"
+  },
+  "ve": {
+    "devanagari": "वे",
+    "brahmi": "𑀯𑁂"
+  },
+  "vi": {
+    "devanagari": "वि",
+    "brahmi": "𑀯𑀺"
+  },
+  "vo": {
+    "devanagari": "वो",
+    "brahmi": "𑀯𑁄"
+  },
+  "vu": {
+    "devanagari": "वु",
+    "brahmi": "𑀯𑀼"
+  },
+  "vā": {
+    "devanagari": "वा",
+    "brahmi": "𑀯𑀸"
+  },
+  "vī": {
+    "devanagari": "वी",
+    "brahmi": "𑀯𑀻"
+  },
+  "vū": {
+    "devanagari": "वू",
+    "brahmi": "𑀯𑀽"
+  },
+  "ya": {
+    "devanagari": "य",
+    "brahmi": "𑀬"
+  },
+  "ye": {
+    "devanagari": "ये",
+    "brahmi": "𑀬𑁂"
+  },
+  "yi": {
+    "devanagari": "यि",
+    "brahmi": "𑀬𑀺"
+  },
+  "yo": {
+    "devanagari": "यो",
+    "brahmi": "𑀬𑁄"
+  },
+  "yu": {
+    "devanagari": "यु",
+    "brahmi": "𑀬𑀼"
+  },
+  "yā": {
+    "devanagari": "या",
+    "brahmi": "𑀬𑀸"
+  },
+  "yī": {
+    "devanagari": "यी",
+    "brahmi": "𑀬𑀻"
+  },
+  "yū": {
+    "devanagari": "यू",
+    "brahmi": "𑀬𑀽"
+  },
+  "ña": {
+    "devanagari": "ञ",
+    "brahmi": "𑀜"
+  },
+  "ñe": {
+    "devanagari": "ञे",
+    "brahmi": "𑀜𑁂"
+  },
+  "ño": {
+    "devanagari": "ञो",
+    "brahmi": "𑀜𑁄"
+  },
+  "ñā": {
+    "devanagari": "ञा",
+    "brahmi": "𑀜𑀸"
+  },
+  "ā": {
+    "devanagari": "आ",
+    "brahmi": "𑀆"
+  },
+  "śa": {
+    "devanagari": "श",
+    "brahmi": "𑀰"
+  },
+  "śi": {
+    "devanagari": "शि",
+    "brahmi": "𑀰𑀺"
+  },
+  "śu": {
+    "devanagari": "शु",
+    "brahmi": "𑀰𑀼"
+  },
+  "śā": {
+    "devanagari": "शा",
+    "brahmi": "𑀰𑀸"
+  },
+  "ḍa": {
+    "devanagari": "ड",
+    "brahmi": "𑀟"
+  },
+  "ḍe": {
+    "devanagari": "डे",
+    "brahmi": "𑀟𑁂"
+  },
+  "ḍha": {
+    "devanagari": "ढ",
+    "brahmi": "𑀠"
+  },
+  "ḍhe": {
+    "devanagari": "ढे",
+    "brahmi": "𑀠𑁂"
+  },
+  "ḍhi": {
+    "devanagari": "ढि",
+    "brahmi": "𑀠𑀺"
+  },
+  "ḍhā": {
+    "devanagari": "ढा",
+    "brahmi": "𑀠𑀸"
+  },
+  "ḍhī": {
+    "devanagari": "ढी",
+    "brahmi": "𑀠𑀻"
+  },
+  "ḍi": {
+    "devanagari": "डि",
+    "brahmi": "𑀟𑀺"
+  },
+  "ḍu": {
+    "devanagari": "डु",
+    "brahmi": "𑀟𑀼"
+  },
+  "ḍā": {
+    "devanagari": "डा",
+    "brahmi": "𑀟𑀸"
+  },
+  "ḍī": {
+    "devanagari": "डी",
+    "brahmi": "𑀟𑀻"
+  },
+  "ṇa": {
+    "devanagari": "ण",
+    "brahmi": "𑀡"
+  },
+  "ṇe": {
+    "devanagari": "णे",
+    "brahmi": "𑀡𑁂"
+  },
+  "ṇi": {
+    "devanagari": "णि",
+    "brahmi": "𑀡𑀺"
+  },
+  "ṇā": {
+    "devanagari": "णा",
+    "brahmi": "𑀡𑀸"
+  },
+  "ṇī": {
+    "devanagari": "णी",
+    "brahmi": "𑀡𑀻"
+  },
+  "ṣa": {
+    "devanagari": "ष",
+    "brahmi": "𑀱"
+  },
+  "ṣe": {
+    "devanagari": "षे",
+    "brahmi": "𑀱𑁂"
+  },
+  "ṣi": {
+    "devanagari": "षि",
+    "brahmi": "𑀱𑀺"
+  },
+  "ṣo": {
+    "devanagari": "षो",
+    "brahmi": "𑀱𑁄"
+  },
+  "ṣu": {
+    "devanagari": "षु",
+    "brahmi": "𑀱𑀼"
+  },
+  "ṣā": {
+    "devanagari": "षा",
+    "brahmi": "𑀱𑀸"
+  },
+  "ṭa": {
+    "devanagari": "ट",
+    "brahmi": "𑀝"
+  },
+  "ṭe": {
+    "devanagari": "टे",
+    "brahmi": "𑀝𑁂"
+  },
+  "ṭha": {
+    "devanagari": "ठ",
+    "brahmi": "𑀞"
+  },
+  "ṭhe": {
+    "devanagari": "ठे",
+    "brahmi": "𑀞𑁂"
+  },
+  "ṭhi": {
+    "devanagari": "ठि",
+    "brahmi": "𑀞𑀺"
+  },
+  "ṭhā": {
+    "devanagari": "ठा",
+    "brahmi": "𑀞𑀸"
+  },
+  "ṭhī": {
+    "devanagari": "ठी",
+    "brahmi": "𑀞𑀻"
+  },
+  "ṭhū": {
+    "devanagari": "ठू",
+    "brahmi": "𑀞𑀽"
+  },
+  "ṭi": {
+    "devanagari": "टि",
+    "brahmi": "𑀝𑀺"
+  },
+  "ṭu": {
+    "devanagari": "टु",
+    "brahmi": "𑀝𑀼"
+  },
+  "ṭā": {
+    "devanagari": "टा",
+    "brahmi": "𑀝𑀸"
+  },
+  "ṭī": {
+    "devanagari": "टी",
+    "brahmi": "𑀝𑀻"
+  }
 }

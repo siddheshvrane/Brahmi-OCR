@@ -222,7 +222,17 @@ def resize_with_padding(img, target_width, target_height, padding_percent=0.15):
 
 def roman_to_devanagari(label):
     """Returns Devanagari transliteration from pre-loaded mapping."""
-    return translit_mapping.get(label, label)
+    val = translit_mapping.get(label, label)
+    if isinstance(val, dict):
+        return val.get('devanagari', label)
+    return val
+
+def roman_to_brahmi(label):
+    """Returns Brahmi script native transliteration from mapping."""
+    val = translit_mapping.get(label, label)
+    if isinstance(val, dict):
+        return val.get('brahmi', label)
+    return val
 
 
 @app.route('/predict', methods=['POST'])
@@ -453,6 +463,7 @@ def predict():
         # --- 5. Decode Results ---
         full_text_latin = []
         full_text_devanagari = []
+        full_text_brahmi = []
         CONF_THRESHOLD = 20.0  # Drop boxes with < 20% confidence
 
         for i, probs in enumerate(final_probabilities):
@@ -465,12 +476,16 @@ def predict():
 
             char_name_latin = class_names[top_idx] if top_idx < len(class_names) else "Unknown"
             char_name_devanagari = roman_to_devanagari(char_name_latin)
+            char_name_brahmi = roman_to_brahmi(char_name_latin)
 
             full_text_latin.append(char_name_latin)
             full_text_devanagari.append(char_name_devanagari)
+            full_text_brahmi.append(char_name_brahmi)
+            
             results.append({
                 'character': char_name_latin,
                 'character_devanagari': char_name_devanagari,
+                'character_brahmi': char_name_brahmi,
                 'confidence': conf,
                 'box': sorted_boxes[i]
             })
@@ -481,6 +496,7 @@ def predict():
             'success': True,
             'top_prediction': " ".join(full_text_latin),
             'top_prediction_devanagari': " ".join(full_text_devanagari),
+            'top_prediction_brahmi': "".join(str(x) for x in full_text_brahmi if x),
             'top_confidence': top_conf,
             'predictions': results,
             'model_used': model_name,

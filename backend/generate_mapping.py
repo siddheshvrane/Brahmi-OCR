@@ -48,6 +48,53 @@ def roman_to_devanagari_logic(label):
     
     return label
 
+def roman_to_brahmi_logic(label):
+    """Dynamically converts Romanized Brahmi labels to Brahmi Unicode script."""
+    if not label or label == "Unknown" or label == "<UNK>":
+        return label
+        
+    # Independent vowels
+    vowel_independent = {
+        "a": "𑀅", "ā": "𑀆", "i": "𑀇", "ī": "𑀈", "u": "𑀉", "ū": "𑀊", "e": "𑀏", "o": "𑀑", 
+        "aa": "𑀆", "ii": "𑀈", "uu": "𑀊", "baa": "𑀩𑀸"
+    }
+    
+    # Consonant bases
+    consonant_bases = {
+        "bh": "𑀪", "b": "𑀩", "ch": "𑀙", "c": "𑀘", "dh": "𑀥", "d": "𑀤", "gh": "𑀖", "g": "𑀕",
+        "jh": "𑀛", "j": "𑀚", "kh": "𑀔", "k": "𑀓", "ph": "𑀨", "p": "𑀧", "th": "𑀣", "t": "𑀢",
+        "ḍh": "𑀠", "ḍ": "𑀟", "ṇa": "𑀡", "ṇ": "𑀡", "ṣ": "𑀱", "ṭh": "𑀞", "ṭ": "𑀝", "h": "𑀳", "l": "𑀮",
+        "m": "𑀫", "n": "𑀦", "r": "𑀭", "s": "𑀲", "v": "𑀯", "y": "𑀬", "ñ": "𑀜", "ś": "𑀰"
+    }
+
+    # Vowel suffixes (matras)
+    vowel_suffixes = {
+        "ā": "𑀸", "i": "𑀺", "ī": "𑀻", "u": "𑀼", "ū": "𑀽", "e": "𑁂", "o": "𑁄", "a": "",
+        "aa": "𑀸", "ii": "𑀻", "uu": "𑀽", # Fallbacks for common alternative spellings
+        "aii": "𑀻", "auu": "𑀽"
+    }
+
+    if label in vowel_independent:
+        return vowel_independent[label]
+    
+    # Sort bases by length desc to match 'bh' before 'b'
+    for base, brahmi_base in sorted(consonant_bases.items(), key=lambda x: len(x[0]), reverse=True):
+        if label.startswith(base):
+            suffix = label[len(base):]
+            if not suffix:
+                return brahmi_base
+            elif suffix in vowel_suffixes:
+                return brahmi_base + vowel_suffixes[suffix]
+            # Handle cases like 'bbaa' or 'bhiii'
+            elif suffix == 'aa' or suffix == 'ā':
+                return brahmi_base + "𑀸"
+            elif suffix == 'ii' or suffix == 'ī':
+                return brahmi_base + "𑀺"
+            elif suffix == 'uu' or suffix == 'ū':
+                return brahmi_base + "𑀼"
+    
+    return label
+
 def generate_full_mapping():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     CONFIG_PATHS = {
@@ -82,7 +129,10 @@ def generate_full_mapping():
     # Build mapping
     translit_map = {}
     for label in sorted(list(all_labels)):
-        translit_map[label] = roman_to_devanagari_logic(label)
+        translit_map[label] = {
+            "devanagari": roman_to_devanagari_logic(label),
+            "brahmi": roman_to_brahmi_logic(label)
+        }
     
     mapping_path = os.path.join(BASE_DIR, 'transliteration_mapping.json')
     with open(mapping_path, 'w', encoding='utf-8') as f:

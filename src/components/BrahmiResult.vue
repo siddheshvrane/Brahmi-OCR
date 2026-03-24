@@ -52,7 +52,7 @@
             @mousedown="startDrawing" 
             @mousemove="draw" 
             @mouseup="stopDrawing"
-            @click="handleCanvasClick"
+            @mouseleave="cancelDrawing"
             :class="{ 'is-drawing': isDrawing, 'pointer-events-none': !showBoundingBoxes }"
             class="interactive-canvas"
           ></canvas>
@@ -115,27 +115,22 @@
 
       <!-- Result Sections -->
       <div v-if="predictionResults" class="results-stack">
-        <!-- Brahmi Script Card -->
-        <div class="result-tile kaavi-border-accent">
-          <div class="tile-header">
-            <h4>Brahmi Script</h4>
-          </div>
-          <div class="tile-content brahmi-font">
-            {{ predictionResults.recognized_brahmi_ascii }}
-          </div>
-        </div>
-
         <!-- Transliteration Card -->
         <div class="result-tile kaavi-border-accent">
           <div class="tile-header header-spread">
-            <h4>Transliteration</h4>
+            <h4>Transliteration & Script</h4>
             <div class="segmented-control">
-              <button :class="{ active: isLatin }" @click="isLatin = true">Latin</button>
-              <button :class="{ active: !isLatin }" @click="isLatin = false">Devanagari</button>
+              <button :class="{ active: transliterationMode === 'latin' }" @click="transliterationMode = 'latin'">Latin</button>
+              <button :class="{ active: transliterationMode === 'devanagari' }" @click="transliterationMode = 'devanagari'">Devanagari</button>
+              <button :class="{ active: transliterationMode === 'brahmi' }" @click="transliterationMode = 'brahmi'">Brahmi</button>
             </div>
           </div>
-          <div class="tile-content" :class="{ 'devanagari-font': !isLatin }">
-            {{ isLatin ? predictionResults.top_prediction : predictionResults.top_prediction_devanagari }}
+          <div class="tile-content" :class="{ 'devanagari-font': transliterationMode === 'devanagari', 'brahmi-font': transliterationMode === 'brahmi' }">
+            {{ 
+              transliterationMode === 'latin' ? predictionResults.top_prediction : 
+              transliterationMode === 'devanagari' ? predictionResults.top_prediction_devanagari :
+              predictionResults.top_prediction_brahmi
+            }}
           </div>
         </div>
         
@@ -172,7 +167,7 @@ const props = defineProps({
 
 // --- State ---
 const API_URL = 'http://localhost:5000';
-const isLatin = ref(true);
+const transliterationMode = ref('latin'); // 'latin', 'devanagari', 'brahmi'
 const isDeciphering = ref(false);
 const isApplyingGAN = ref(false);
 const showBoundingBoxes = ref(true);
@@ -334,31 +329,31 @@ const stopDrawing = (e) => {
     }
 
     renderCanvas();
+  } else {
+    // Treat as a click (delete box)
+    const scale = offscreenImg.width / interactiveCanvas.value.width;
+    const realX = endX * scale;
+    const realY = endY * scale;
+
+    let boxToRemove = -1;
+    for (let i = currentBoxes.value.length - 1; i >= 0; i--) {
+      const [x, y, w, h] = currentBoxes.value[i];
+      if (realX >= x && realX <= x + w && realY >= y && realY <= y + h) {
+        boxToRemove = i;
+        break;
+      }
+    }
+
+    if (boxToRemove !== -1) {
+      currentBoxes.value.splice(boxToRemove, 1);
+      renderCanvas();
+    }
   }
 };
 
-const handleCanvasClick = (e) => {
-  if (isDrawing.value || !showBoundingBoxes.value) return;
-  
-  const rect = interactiveCanvas.value.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const clickY = e.clientY - rect.top;
-  const scale = offscreenImg.width / interactiveCanvas.value.width;
-  
-  const realX = clickX * scale;
-  const realY = clickY * scale;
-
-  let boxToRemove = -1;
-  for (let i = currentBoxes.value.length - 1; i >= 0; i--) {
-    const [x, y, w, h] = currentBoxes.value[i];
-    if (realX >= x && realX <= x + w && realY >= y && realY <= y + h) {
-      boxToRemove = i;
-      break;
-    }
-  }
-
-  if (boxToRemove !== -1) {
-    currentBoxes.value.splice(boxToRemove, 1);
+const cancelDrawing = () => {
+  if (isDrawing.value) {
+    isDrawing.value = false;
     renderCanvas();
   }
 };
@@ -891,9 +886,11 @@ onUnmounted(() => window.removeEventListener('resize', initCanvas));
 }
 
 .brahmi-font {
-  font-family: "Segoe UI Historic", "Noto Sans Brahmi", sans-serif;
+  font-family: "Noto Sans Brahmi", "Segoe UI Historic", sans-serif;
   font-size: 2rem;
   letter-spacing: 4px;
+  line-height: 1.4;
+  color: var(--color-text-primary);
 }
 
 .devanagari-font {
