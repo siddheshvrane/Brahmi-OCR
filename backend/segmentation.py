@@ -37,6 +37,72 @@ def clean_image_noise(image_bgr, min_dot_area=50):
             
     return clean_bgr
 
+def remove_background_noise(image_bgr, min_dot_area=60):
+    """
+    Cleans floating stone texture and pepper noise from the image.
+    Uses a structural proximity algorithm:
+    - Long strokes or heavy blobs are marked as core character structures.
+    - Small blobs (stone texture vs valid punctuation dots) are judged by proximity.
+    - If a small blob is near a core structure, it's preserved as punctuation (Visarga/fragment).
+    - If a small blob is floating in the background, it's nuked.
+    """
+    # 1. Median Blur to kill 1-2px intense salt-and-pepper noise safely instantly
+    blurred = cv2.medianBlur(image_bgr, 3)
+    
+    gray = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    
+    # 2. Morphological close to join slightly disjoint strokes physically 
+    # (only for structural analysis, not drawn to final output)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
+    
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(thresh, connectivity=8)
+    
+    cleaned_bgr = blurred.copy()
+    
+    # 3. Distinguish "core structures" vs "small dots"
+    large_mask = np.zeros_like(thresh)
+    small_labels = []
+    
+    for i in range(1, num_labels):
+        area = stats[i, cv2.CC_STAT_AREA]
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        h = stats[i, cv2.CC_STAT_HEIGHT]
+        
+        # A core stroke is either physically long/wide (w or h >= 20) or massive (area >= 150)
+        # Anything else is a tiny isolated dot or artifact
+        if area >= 150 or max(w, h) >= 20:
+            large_mask[labels == i] = 255
+        else:
+            small_labels.append((i, area))
+            
+    # 4. Dilate the core structures to create a "Safe Zone" 
+    # Distance = 25px kernel (roughly 12px radius) around a core stroke
+    safe_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+    safe_zone = cv2.dilate(large_mask, safe_kernel)
+    
+    # 5. Evaluate small dots based on location
+    for i, area in small_labels:
+        cx, cy = int(centroids[i][0]), int(centroids[i][1])
+        
+        # Clamp centroid inside image bounds (safety)
+        cy = max(0, min(cy, safe_zone.shape[0]-1))
+        cx = max(0, min(cx, safe_zone.shape[1]-1))
+        
+        is_safe = False
+        # If it's incredibly tiny pepper dust (< 10 area), always nuke it
+        if area < 10:
+            is_safe = False
+        # If it's lying inside the safe zone, it's a valid punctuation / broken character piece
+        elif safe_zone[cy, cx] == 255:
+            is_safe = True
+            
+        if not is_safe:
+            cleaned_bgr[labels == i] = [255, 255, 255]
+            
+    return cleaned_bgr
+
 
 def merge_nested_boxes(boxes):
     """
@@ -140,8 +206,8 @@ def detect_characters(image_input, min_area=100, padding_ratio=0.15):
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
     
-    # Find Contours
-    contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Find Contours using RETR_LIST so we catch characters inside drawn border frames
+    contours, _ = cv2.findContours(morph, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     
     initial_boxes = []
     for cnt in contours:
@@ -175,49 +241,50 @@ def detect_characters(image_input, min_area=100, padding_ratio=0.15):
             
     return final_boxes, img
 
-def sort_boxes(boxes, y_threshold=20):
+def sort_boxes(boxes, y_threshold=None):
     """
     Sorts bounding boxes from top to bottom, left to right.
-    
-    Args:
-        boxes: List of (x, y, w, h) tuples.
-        y_threshold: Vertical distance threshold to consider boxes in the same line.
-        
-    Returns:
-        Sorted list of boxes.
+    Uses dynamic line grouping based on median character height to properly cluster 
+    slightly misaligned characters on the exact same visible line.
     """
     if not boxes:
         return []
 
-    # Sort by Y coordinate first
-    # This helps but isn't enough for clean line detection if y varies slightly
+    # Calculate dynamic y_threshold (e.g. 50% of the median character height)
+    # This prevents fixed thresholds (like 20px) from failing on high-res images
+    if y_threshold is None:
+        import numpy as np
+        median_h = np.median([b[3] for b in boxes])
+        y_threshold = max(20, median_h * 0.5)
+
+    # Sort strictly by Top Y initially
     boxes = sorted(boxes, key=lambda b: b[1])
     
     lines = []
     current_line = [boxes[0]]
+    # Running average center Y for the current line
+    current_line_center_y = boxes[0][1] + boxes[0][3] // 2
     
     for i in range(1, len(boxes)):
         x, y, w, h = boxes[i]
-        prev_x, prev_y, prev_w, prev_h = current_line[-1]
-        
-        # Check if the current box is roughly on the same line as the previous one
-        # using the center y or just y diff
         center_y = y + h // 2
-        prev_center_y = prev_y + prev_h // 2
         
-        if abs(center_y - prev_center_y) <= y_threshold:
+        # Check against the entire line's average (prevents drifting separation)
+        if abs(center_y - current_line_center_y) <= y_threshold:
             current_line.append(boxes[i])
+            # Update running average
+            current_line_center_y = sum(b[1] + b[3] // 2 for b in current_line) / len(current_line)
         else:
-            # New line
+            # Shift to Next Line
             lines.append(current_line)
             current_line = [boxes[i]]
+            current_line_center_y = y + h // 2
             
     lines.append(current_line)
     
-    # Sort each line by X coordinate
+    # Finally sort each constructed line strictly by X coordinate (Left to Right)
     sorted_boxes = []
     for line in lines:
-        # Sort by x
         line.sort(key=lambda b: b[0])
         sorted_boxes.extend(line)
         

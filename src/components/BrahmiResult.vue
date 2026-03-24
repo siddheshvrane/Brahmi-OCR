@@ -23,8 +23,10 @@
       <div class="canvas-card kaavi-border-accent">
         <div class="toolbar">
           <div class="toolbar-left">
-            <h3>GAN-Restored Image</h3>
-            <span class="badge">Refine</span>
+            <h3>{{ phase === 'segmentation' ? 'Detected Boxes' : 'GAN-Restored Image' }}</h3>
+            <span class="badge" :class="phase === 'segmentation' ? 'badge-review' : ''">
+              {{ phase === 'segmentation' ? 'Review Boxes' : 'Refine' }}
+            </span>
           </div>
           <div class="toolbar-right">
             <label class="switch-container">
@@ -63,8 +65,28 @@
         </div>
       </div>
 
-      <!-- Action Bar Footer -->
-      <div class="action-bar kaavi-border-accent">
+      <!-- Phase 1: Segmentation — Apply GAN button -->
+      <div v-if="phase === 'segmentation'" class="action-bar kaavi-border-accent">
+        <div class="phase-hint">
+          <svg viewBox="0 0 24 24" fill="none" width="14" height="14" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span>Review boxes, edit if needed, then apply GAN restoration</span>
+        </div>
+        <button
+          @click="applyGAN"
+          :disabled="isApplyingGAN || currentBoxes.length === 0"
+          class="btn-primary"
+        >
+          <svg v-if="isApplyingGAN" class="spinner" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="32" stroke-dashoffset="0" stroke-linecap="round"></circle>
+          </svg>
+          <span>{{ isApplyingGAN ? 'Restoring...' : 'Apply GAN Restoration' }}</span>
+        </button>
+      </div>
+
+      <!-- Phase 2: Restoration — Decipher button -->
+      <div v-if="phase === 'restoration'" class="action-bar kaavi-border-accent">
         <div class="input-group">
           <label>OCR Engine</label>
           <div class="select-wrapper">
@@ -152,10 +174,12 @@ const props = defineProps({
 const API_URL = 'http://localhost:5000';
 const isLatin = ref(true);
 const isDeciphering = ref(false);
+const isApplyingGAN = ref(false);
 const showBoundingBoxes = ref(true);
 const selectedModel = ref('Ensemble');
 const currentBoxes = ref([]); 
 const predictionResults = ref(null);
+const phase = ref('segmentation'); // 'segmentation' | 'restoration'
 
 // Canvas Refs & State
 const interactiveCanvas = ref(null);
@@ -166,9 +190,14 @@ const startY = ref(0);
 const currentX = ref(0);
 const currentY = ref(0);
 
-// Source images
-const restoredImageSrc = computed(() => {
-  return props.initialData ? `data:image/jpeg;base64,${props.initialData.restored_image_b64}` : '';
+// Source images — canvas shows different image depending on phase
+const canvasImageSrc = computed(() => {
+  if (!props.initialData) return '';
+  // In segmentation phase: show original (no GAN). In restoration: show GAN result.
+  const b64 = phase.value === 'restoration' && props.initialData.restored_image_b64
+    ? props.initialData.restored_image_b64
+    : props.initialData.original_image_b64;
+  return `data:image/jpeg;base64,${b64}`;
 });
 
 // Image object for canvas operations
@@ -199,7 +228,7 @@ const initCanvas = () => {
     
     renderCanvas();
   };
-  img.src = restoredImageSrc.value;
+  img.src = canvasImageSrc.value;
 };
 
 const renderCanvas = () => {
@@ -341,6 +370,45 @@ const clearAllBoxes = () => {
 
 // --- API ---
 
+// Phase 1 → Phase 2: call /process with user-confirmed boxes
+const applyGAN = async () => {
+  if (currentBoxes.value.length === 0) return;
+  isApplyingGAN.value = true;
+
+  try {
+    const response = await fetch(`${API_URL}/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: props.initialData.original_image_b64,
+        boxes: currentBoxes.value
+      })
+    });
+    const data = await response.json();
+    if (data.success) {
+      // 1) Change local phase first so canvasImageSrc switches
+      phase.value = 'restoration';
+      
+      // 2) Mutate initialData silently (watcher ignores this because phase != 'segmentation')
+      props.initialData.phase = 'restoration';
+      props.initialData.restored_image_b64 = data.restored_image_b64;
+      props.initialData.initial_boxes = data.boxes;
+      currentBoxes.value = [...data.boxes];
+      
+      // 3) Reload canvas with GAN-restored image
+      const img = new Image();
+      img.onload = () => { offscreenImg = img; renderCanvas(); };
+      img.src = `data:image/jpeg;base64,${data.restored_image_b64}`;
+    } else {
+      console.error('GAN restoration failed:', data.error);
+    }
+  } catch (err) {
+    console.error('applyGAN error:', err);
+  } finally {
+    isApplyingGAN.value = false;
+  }
+};
+
 const decipherCharacters = async () => {
   if (currentBoxes.value.length === 0) return;
   isDeciphering.value = true;
@@ -381,9 +449,14 @@ const downloadReport = async () => {
 
 // --- Lifecycle ---
 
-watch(() => props.initialData, () => {
-  predictionResults.value = null;
-  setTimeout(initCanvas, 100);
+watch(() => props.initialData, (newData, oldData) => {
+  // Only completely reset if it's explicitly a NEW upload (from FileUploader)
+  // FileUploader now explicitly sets phase: 'segmentation'
+  if (newData && newData.phase === 'segmentation') {
+    predictionResults.value = null;
+    phase.value = 'segmentation';
+    setTimeout(initCanvas, 100);
+  }
 }, { deep: true });
 
 watch(showBoundingBoxes, () => renderCanvas());
@@ -518,6 +591,11 @@ onUnmounted(() => window.removeEventListener('resize', initCanvas));
   padding: 4px 10px;
   border-radius: 9999px;
   letter-spacing: 0.5px;
+}
+
+.badge-review {
+  background-color: rgba(59, 130, 246, 0.1); /* Blue tint */
+  color: #2563eb; /* Blue 600 */
 }
 
 .toolbar-right {
@@ -670,6 +748,16 @@ onUnmounted(() => window.removeEventListener('resize', initCanvas));
   border-radius: var(--radius-lg);
   padding: 16px;
   box-shadow: var(--shadow-sm);
+}
+
+.phase-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  margin-right: auto;
+  align-self: center;
 }
 
 .input-group {

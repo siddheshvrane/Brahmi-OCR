@@ -21,7 +21,7 @@ import torch
 
 # Import segmentation and GAN restorer
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from segmentation import detect_characters, sort_boxes, clean_image_noise
+from segmentation import detect_characters, sort_boxes, clean_image_noise, remove_background_noise
 from gan_restorer import GANRestorer
 
 
@@ -102,7 +102,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Initialize GAN Restorer
 gan_restorer = None
 try:
-    gan_path = os.path.join(BASE_DIR, 'gan_character_restorer', 'pix2pix_final_epoch_10.pth')
+    gan_path = os.path.join(BASE_DIR, 'Brahmi_Model_Export', 'epoch_0250.pth')
     if os.path.exists(gan_path):
         gan_restorer = GANRestorer(gan_path, device=device)
     else:
@@ -164,6 +164,40 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
 
 
+def has_real_ink(box, orig_gray_np,
+                 ink_max=80, crack_low=100, crack_high=210, min_ink_ratio=0.30):
+    """
+    Returns True if the box contains enough genuine black ink to be a real character.
+
+    Crack-remnant boxes (created by the crack-bridge trick) exist ONLY in a gray
+    damage region with no underlying ink.  Real character boxes always have
+    substantial black ink even when partially covered by a crack.
+
+    Logic:
+      - black pixels  : orig pixel < ink_max          (real ink strokes)
+      - gray pixels   : crack_low <= pixel <= crack_high  (crack / damage area)
+      - white pixels  : everything else               (background, ignored)
+      ink_ratio = black / (black + gray)
+      If ink_ratio < min_ink_ratio → mostly crack pixels → NOT a real character.
+    """
+    x, y, w, h = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+    H, W = orig_gray_np.shape[:2]
+    x2, y2 = min(x + w, W), min(y + h, H)
+    crop = orig_gray_np[y:y2, x:x2]
+    if crop.size == 0:
+        return False
+    black_px = int(np.sum(crop < ink_max))
+    gray_px  = int(np.sum((crop >= crack_low) & (crop <= crack_high)))
+    total    = black_px + gray_px
+    if total == 0:
+        return False   # entirely white → not a character
+    ink_ratio = black_px / total
+    ok = ink_ratio >= min_ink_ratio
+    if not ok:
+        print(f"   Dropped crack-remnant box {box}: ink_ratio={ink_ratio:.2f} < {min_ink_ratio}")
+    return ok
+
+
 def resize_with_padding(img, target_width, target_height, padding_percent=0.15):
     """
     Resizes image to target dimensions using 'Padding to Square' method:
@@ -215,10 +249,14 @@ def predict():
         # Keep original PIL Image for GAN crops
         original_pil = img.copy()
 
-        # --- 3. Segmentation ---
-        open_cv_image = np.array(img)[:, :, ::-1].copy()  # RGB -> BGR
+        # --- 3. Segmentation & Preprocessing ---
+        open_cv_image_raw = np.array(img)[:, :, ::-1].copy()  # RGB -> BGR
+        open_cv_image = remove_background_noise(open_cv_image_raw, min_dot_area=60)
+        
+        # update original_pil with the cleaned version so GAN gets clean inputs
+        original_pil = Image.fromarray(cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2RGB))
 
-        # Use cleaned image ONLY for finding bounding boxes
+        # Use binarized detection image ONLY for finding bounding boxes
         detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
 
         # Get custom boxes from request if they exist
@@ -238,31 +276,78 @@ def predict():
             else:
                 sorted_boxes = sort_boxes(boxes)
 
-        # --- GAN Restoration & Then Cleaning (Per Crop) ---
-        restored_pil_crops = []
-        if sorted_boxes:
-            composite_img = original_pil.copy()
+        # --- Iterative GAN Restore + Re-Segmentation Loop ---
+        # Each iteration:
+        #   1. GAN-restore each damaged box and paste into composite
+        #   2. Crack-bridge re-segment: force gray→black, re-detect boxes
+        #   3. If boxes changed → more merging possible → continue
+        #   4. If no damage found OR boxes are stable → stop
+        # Using the merged/healed boxes from each pass as input to the next
+        # ensures cracks that span multiple fragments are progressively healed.
+        MAX_ITERS = 4
+        composite_img = original_pil.copy()
 
+        for _iter in range(MAX_ITERS):
+            if not sorted_boxes:
+                break
+
+            # --- Restore each box ---
+            any_damaged = False
+            new_composite = composite_img.copy()
             for (x, y, w, h) in sorted_boxes:
-                # 1. Crop from original image
-                crop = original_pil.crop((x, y, x+w, y+h))
+                crop = composite_img.crop((x, y, x+w, y+h))
+                if gan_restorer and gan_restorer.needs_restoration(crop):
+                    any_damaged = True
+                    restored_crop = gan_restorer.restore(crop)
+                else:
+                    restored_crop = crop.convert('RGB')
+                restored_cv       = np.array(restored_crop)[:, :, ::-1].copy()
+                cleaned_cv        = clean_image_noise(restored_cv, min_dot_area=10)
+                cleaned_pil       = Image.fromarray(cleaned_cv[:, :, ::-1])
+                new_composite.paste(cleaned_pil.resize((w, h), Image.Resampling.LANCZOS), (x, y))
+            composite_img = new_composite
 
-                # 2. GAN Restore
-                restored_crop = gan_restorer.restore(crop) if gan_restorer else crop
+            if not any_damaged:
+                print(f"[GAN iter {_iter+1}] No damage found. Stopping.")
+                break
 
-                # 3. Clean noise & binarize AFTER GAN
-                restored_cv = np.array(restored_crop)[:, :, ::-1].copy()
-                cleaned_restored_cv = clean_image_noise(restored_cv, min_dot_area=10)
-                cleaned_restored_pil = Image.fromarray(cleaned_restored_cv[:, :, ::-1])
+            # --- Crack-bridge re-segmentation (only for auto boxes) ---
+            if not custom_boxes:
+                comp_np  = np.array(composite_img.convert('L'))
+                bridge   = np.array(composite_img)[:, :, ::-1].copy()
+                bridge[(comp_np >= 100) & (comp_np <= 200)] = [0, 0, 0]
+                det      = clean_image_noise(bridge, min_dot_area=50)
+                new_bxs, _ = detect_characters(det)
+                if len(new_bxs) > 1:
+                    all_sorted = sort_boxes(new_bxs)
+                    # Filter out crack-remnant boxes using original image ink content.
+                    # A box that is mostly gray (crack) and has little black ink
+                    # is NOT a real character — it's a crack strip.
+                    orig_gray_np = np.array(original_pil.convert('L'))
+                    all_sorted = [b for b in all_sorted
+                                  if has_real_ink(b, orig_gray_np)]
+                    new_sorted = all_sorted if all_sorted else sorted_boxes
+                elif len(new_bxs) == 1:
+                    new_sorted = [[0, 0, composite_img.width, composite_img.height]]
+                else:
+                    new_sorted = sorted_boxes
 
-                # Resize cleaned result back to original box size for composite display
-                composite_img.paste(cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS), (x, y))
+                boxes_changed = (new_sorted != sorted_boxes)
+                print(f"[GAN iter {_iter+1}] Boxes: {len(sorted_boxes)} → {len(new_sorted)}"
+                      f"  {'(changed)' if boxes_changed else '(stable)'}")
+                sorted_boxes = new_sorted
+                if not boxes_changed:
+                    break  # stable — no further merging possible
+            else:
+                break  # custom boxes — single pass only
 
-                restored_pil_crops.append(cleaned_restored_pil)
+        # Crop from composite (per-crop GAN quality) using new boxes for OCR
+        restored_pil_crops = []
+        for (x, y, w, h) in sorted_boxes:
+            crop = composite_img.crop((x, y, x+w, y+h))
+            restored_pil_crops.append(crop.convert('RGB'))
 
-            restored_image_to_show = composite_img
-        else:
-            restored_image_to_show = original_pil
+        restored_image_to_show = composite_img
 
         # Encode the restored image to return to the frontend
         buffered = io.BytesIO()
@@ -426,33 +511,94 @@ def process():
         if img.mode != 'RGB':
             img = img.convert('RGB')
 
-        # Encode original image for frontend
+        # 1. Clean stone texture and tiny noise out of the RGB image
+        open_cv_image_raw = np.array(img)[:, :, ::-1].copy()
+        open_cv_image = remove_background_noise(open_cv_image_raw, min_dot_area=600)
+        
+        # Update img to be the cleaned version for downstream GAN
+        img = Image.fromarray(cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2RGB))
+
+        # Encode (cleaned) original image for frontend
         buffered_orig = io.BytesIO()
         img.save(buffered_orig, format="JPEG")
         original_image_b64 = base64.b64encode(buffered_orig.getvalue()).decode('utf-8')
 
-        # Detect characters on a cleaned version
-        open_cv_image = np.array(img)[:, :, ::-1].copy()
-        detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
-        boxes, _ = detect_characters(detection_image)
-        sorted_boxes = sort_boxes(boxes) if boxes else []
-
-        # Build GAN composite: original crop → GAN restore → clean & binarize → paste back
-        if sorted_boxes:
-            composite_img = img.copy()
-            for (x, y, w, h) in sorted_boxes:
-                crop = img.crop((x, y, x+w, y+h))
-
-                restored_crop = gan_restorer.restore(crop) if gan_restorer else crop
-
-                restored_cv = np.array(restored_crop)[:, :, ::-1].copy()
-                cleaned_restored_cv = clean_image_noise(restored_cv, min_dot_area=10)
-                cleaned_restored_pil = Image.fromarray(cleaned_restored_cv[:, :, ::-1])
-
-                composite_img.paste(cleaned_restored_pil.resize((w, h), Image.Resampling.LANCZOS), (x, y))
-            display_pil = composite_img
+        # Get custom boxes from request if they exist
+        custom_boxes_data = (request.json and request.json.get('boxes')) or request.form.get('boxes')
+        
+        if custom_boxes_data:
+            if isinstance(custom_boxes_data, str):
+                sorted_boxes = json.loads(custom_boxes_data)
+            else:
+                sorted_boxes = custom_boxes_data
+            custom_boxes = True
+            print(f"[/process] Using {len(sorted_boxes)} custom/manual boxes.")
         else:
-            display_pil = img
+            custom_boxes = False
+            # Detect characters on a cleaned version
+            open_cv_image = np.array(img)[:, :, ::-1].copy()
+            detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
+            boxes, _ = detect_characters(detection_image)
+            sorted_boxes = sort_boxes(boxes) if boxes else []
+
+        # --- Iterative GAN Restore + Re-Segmentation Loop ---
+        MAX_ITERS = 4
+        composite_img = img.copy()
+
+        for _iter in range(MAX_ITERS):
+            if not sorted_boxes:
+                break
+
+            # --- Restore each box ---
+            any_damaged = False
+            new_composite = composite_img.copy()
+            for (x, y, w, h) in sorted_boxes:
+                crop = composite_img.crop((x, y, x+w, y+h))
+                if gan_restorer and gan_restorer.needs_restoration(crop):
+                    any_damaged = True
+                    restored_crop = gan_restorer.restore(crop)
+                else:
+                    restored_crop = crop.convert('RGB')
+                restored_cv = np.array(restored_crop)[:, :, ::-1].copy()
+                cleaned_cv  = clean_image_noise(restored_cv, min_dot_area=10)
+                cleaned_pil = Image.fromarray(cleaned_cv[:, :, ::-1])
+                new_composite.paste(cleaned_pil.resize((w, h), Image.Resampling.LANCZOS), (x, y))
+            composite_img = new_composite
+
+            if not any_damaged:
+                print(f"[GAN iter {_iter+1}] No damage found. Stopping.")
+                break
+
+            # --- Crack-bridge re-segmentation (only for auto boxes) ---
+            if not custom_boxes:
+                bridge_np = np.array(composite_img.convert('L'))
+                bridge_cv = np.array(composite_img)[:, :, ::-1].copy()
+                bridge_cv[(bridge_np >= 100) & (bridge_np <= 200)] = [0, 0, 0]
+                det = clean_image_noise(bridge_cv, min_dot_area=50)
+                new_bxs, _ = detect_characters(det)
+                if len(new_bxs) > 1:
+                    all_sorted = sort_boxes(new_bxs)
+                    # Filter out crack-remnant boxes using original image ink content.
+                    orig_gray_np = np.array(img.convert('L'))
+                    all_sorted = [b for b in all_sorted
+                                  if has_real_ink(b, orig_gray_np)]
+                    new_sorted = all_sorted if all_sorted else sorted_boxes
+                elif not sorted_boxes:
+                    new_sorted = []
+                else:
+                    new_sorted = sorted_boxes
+
+                boxes_changed = (new_sorted != sorted_boxes)
+                print(f"[GAN iter {_iter+1}] Boxes: {len(sorted_boxes)} → {len(new_sorted)}"
+                      f"  {'(changed)' if boxes_changed else '(stable)'}")
+                sorted_boxes = new_sorted
+                if not boxes_changed:
+                    break
+            else:
+                # Custom boxes provided: apply GAN once to the specified areas, don't re-segment
+                break
+
+        display_pil = composite_img
 
         # Encode processed image for frontend
         buffered_clean = io.BytesIO()
@@ -468,6 +614,52 @@ def process():
 
     except Exception as e:
         print(f"Processing error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/segment', methods=['POST', 'OPTIONS'])
+def segment_only():
+    """Segmentation only — no GAN. Returns original image + detected boxes for user review."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    try:
+        # Load image
+        if 'image' in request.files:
+            file = request.files['image']
+            img = Image.open(file.stream)
+        elif request.json and 'image' in request.json:
+            img_data = base64.b64decode(request.json['image'])
+            img = Image.open(io.BytesIO(img_data))
+        else:
+            return jsonify({'success': False, 'error': 'No image provided.'}), 400
+
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # 1. Clean stone texture and tiny noise out of the RGB image
+        open_cv_image_raw = np.array(img)[:, :, ::-1].copy()
+        open_cv_image = remove_background_noise(open_cv_image_raw, min_dot_area=600)
+
+        # Segment on binarized detection version
+        detection_image = clean_image_noise(open_cv_image, min_dot_area=50)
+        boxes, _ = detect_characters(detection_image)
+        sorted_boxes = sort_boxes(boxes) if boxes else []
+        print(f"[/segment] Found {len(sorted_boxes)} boxes.")
+
+        # Encode the *cleaned* image so the user doesn't see or draw boxes on noise
+        cleaned_pil = Image.fromarray(cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2RGB))
+        buffered = io.BytesIO()
+        cleaned_pil.save(buffered, format="JPEG")
+        original_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        return jsonify({
+            'success': True,
+            'original_image_b64': original_b64,
+            'boxes': sorted_boxes
+        })
+
+    except Exception as e:
+        print(f"Segment error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

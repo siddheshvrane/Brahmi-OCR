@@ -123,7 +123,9 @@ const processImage = async () => {
   try {
     const imageBase64 = await fileToBase64(selectedFile.value);
     
-    const response = await fetch(`${API_URL}/process`, {
+    // Step 1: Fast segmentation only — no GAN yet.
+    // User will review/edit the returned boxes before triggering GAN.
+    const response = await fetch(`${API_URL}/segment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: imageBase64 }),
@@ -132,12 +134,13 @@ const processImage = async () => {
     const data = await response.json();
     if (data.success) {
       emit('image-processed', {
-        original_image_b64: imageBase64,
-        restored_image_b64: data.restored_image_b64,
+        phase: 'segmentation',              // tells BrahmiResult which step we're in
+        original_image_b64: data.original_image_b64,
+        restored_image_b64: null,           // no GAN yet
         initial_boxes: data.boxes
       });
     } else {
-      error.value = data.error || "Processing failed.";
+      error.value = data.error || "Segmentation failed.";
     }
   } catch (err) {
     console.error(err);
