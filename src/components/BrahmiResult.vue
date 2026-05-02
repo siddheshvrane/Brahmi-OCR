@@ -61,7 +61,11 @@
           </div>
         </div>
         <div class="canvas-footer">
-          Click a box to delete • Drag to draw new box
+          <span class="footer-legend">
+            <span class="legend-dot green"></span> High confidence
+            <span class="legend-dot red"></span> Low confidence — reshape red boxes &amp; re-analyze
+          </span>
+          <span class="footer-hint">Click a box to delete • Drag to draw new box</span>
         </div>
       </div>
 
@@ -113,18 +117,21 @@
         </button>
       </div>
 
+
+
       <!-- Result Sections -->
       <div v-if="predictionResults" class="results-stack">
         <!-- Transliteration Card -->
         <div class="result-tile kaavi-border-accent">
           <div class="tile-header header-spread">
-            <h4>Transliteration & Script</h4>
+            <h4>Transliteration &amp; Script</h4>
             <div class="segmented-control">
               <button :class="{ active: transliterationMode === 'latin' }" @click="transliterationMode = 'latin'">Latin</button>
               <button :class="{ active: transliterationMode === 'devanagari' }" @click="transliterationMode = 'devanagari'">Devanagari</button>
               <button :class="{ active: transliterationMode === 'brahmi' }" @click="transliterationMode = 'brahmi'">Brahmi</button>
             </div>
           </div>
+
           <div class="tile-content" :class="{ 'devanagari-font': transliterationMode === 'devanagari', 'brahmi-font': transliterationMode === 'brahmi' }">
             {{ 
               transliterationMode === 'latin' ? predictionResults.top_prediction : 
@@ -175,6 +182,12 @@ const selectedModel = ref('Ensemble');
 const currentBoxes = ref([]); 
 const predictionResults = ref(null);
 const phase = ref('segmentation'); // 'segmentation' | 'restoration'
+
+// Confidence-loop state
+// Set of box indices that are low-confidence (to be drawn in red)
+const lowConfBoxIndices = ref(new Set());
+const refinementIteration = ref(0);
+const showRefinementBanner = ref(false);
 
 // Canvas Refs & State
 const interactiveCanvas = ref(null);
@@ -239,12 +252,30 @@ const renderCanvas = () => {
 
   const scale = canvas.width / offscreenImg.width;
 
-  // Draw Boxes
+  // Draw Boxes — red for low-confidence, green for high-confidence
   ctx.lineWidth = 2;
-  currentBoxes.value.forEach((box) => {
+  currentBoxes.value.forEach((box, idx) => {
     const [x, y, w, h] = box;
-    ctx.strokeStyle = '#10b981'; // Emerald Green
-    ctx.strokeRect(x * scale, y * scale, w * scale, h * scale);
+    const isLowConf = lowConfBoxIndices.value.has(idx);
+    if (isLowConf) {
+      // Red pulsing box for low-confidence
+      ctx.strokeStyle = '#ef4444';
+      ctx.setLineDash([5, 3]);
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(x * scale, y * scale, w * scale, h * scale);
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      // Red semi-transparent fill
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+      ctx.fillRect(x * scale, y * scale, w * scale, h * scale);
+      // Small badge
+      ctx.fillStyle = '#ef4444';
+      ctx.font = `bold ${Math.max(10, 12 * scale)}px Inter, sans-serif`;
+      ctx.fillText('!', x * scale + 3, y * scale + Math.max(12, 14 * scale));
+    } else {
+      ctx.strokeStyle = '#10b981'; // Emerald Green
+      ctx.strokeRect(x * scale, y * scale, w * scale, h * scale);
+    }
   });
   
   if (isDrawing.value) {
@@ -408,6 +439,7 @@ const decipherCharacters = async () => {
   if (currentBoxes.value.length === 0) return;
   isDeciphering.value = true;
   predictionResults.value = null;
+  showRefinementBanner.value = false;
 
   try {
     const response = await fetch(`${API_URL}/predict`, {
@@ -423,6 +455,25 @@ const decipherCharacters = async () => {
     const data = await response.json();
     if (data.success) {
       predictionResults.value = data;
+
+      // Build the low-confidence set from the per-prediction results
+      const newLowConf = new Set();
+      if (data.predictions) {
+        data.predictions.forEach((pred, idx) => {
+          if (pred.low_confidence) newLowConf.add(idx);
+        });
+      }
+      lowConfBoxIndices.value = newLowConf;
+
+      if (newLowConf.size > 0) {
+        refinementIteration.value += 1;
+        showRefinementBanner.value = true;
+      } else {
+        showRefinementBanner.value = false;
+      }
+
+      // Re-render canvas to show red/green boxes
+      renderCanvas();
     } else {
       console.error(data.error);
     }
@@ -431,6 +482,12 @@ const decipherCharacters = async () => {
   } finally {
     isDeciphering.value = false;
   }
+};
+
+// Re-analyze — called from refinement banner after user reshapes boxes
+const reAnalyze = () => {
+  refinementIteration.value = 0;
+  decipherCharacters();
 };
 
 const downloadReport = async () => {
@@ -450,6 +507,9 @@ watch(() => props.initialData, (newData, oldData) => {
   if (newData && newData.phase === 'segmentation') {
     predictionResults.value = null;
     phase.value = 'segmentation';
+    lowConfBoxIndices.value = new Set();
+    refinementIteration.value = 0;
+    showRefinementBanner.value = false;
     setTimeout(initCanvas, 100);
   }
 }, { deep: true });
@@ -964,5 +1024,41 @@ onUnmounted(() => window.removeEventListener('resize', initCanvas));
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+/* ── Canvas Footer Legend ─────────────────────────────────────── */
+.canvas-footer {
+  padding: 8px 16px;
+  background-color: white;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.footer-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
+.legend-dot.green { background-color: #10b981; }
+.legend-dot.red   { background-color: #ef4444; }
+
+.footer-hint {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
 }
 </style>
